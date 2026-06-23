@@ -6,7 +6,7 @@ worked, minimal example of a ``.pyclawd/config.py`` for an env-agnostic,
 pure-Python project with no compile step and no docs.
 """
 
-from pyclawd import DoctorConfig, Project, QualityConfig, TestConfig
+from pyclawd import DocsConfig, DoctorConfig, Project, QualityConfig, TestConfig
 
 project = Project(
     name="pyclawd",
@@ -22,7 +22,9 @@ project = Project(
     clean_ext_globs=[],
     # Default directory `pyclawd ls` lists (the code/source root) — src-layout repo.
     src_dir="src",
-    docs=None,  # no docs (yet) — the `pyclawd docs` group is not registered
+    # Dogfood the docs pipeline on pyclawd itself: the worked ./docs runner builds
+    # this repo's docs (install once: `pip install -e ./docs`). Paths default to docs/...
+    docs=DocsConfig(runner=["python", "docs/cli.py"]),
     # Dogfood pyclawd's own quality layer: ruff (lint+format) + mypy (typecheck).
     quality=QualityConfig(
         lint_cmd=["ruff", "check"],
