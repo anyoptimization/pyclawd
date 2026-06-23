@@ -1,0 +1,21 @@
+# Minimal Sphinx config for {{name}} (nbsphinx renders the executed notebooks).
+import os
+
+project = "{{name}}"
+author = "{{author}}"
+
+# nbsphinx renders the .ipynb produced by the runner's `compile`. Execution is done
+# separately by the runner's `run` (jupyter-cache), so Sphinx never executes.
+extensions = ["nbsphinx"]
+nbsphinx_execute = "never"
+
+master_doc = "index"
+html_theme = "alabaster"
+
+# .md files are jupytext *sources* (compiled to .ipynb); exclude the raw .md so
+# Sphinx renders the notebooks, not the markdown.
+exclude_patterns = ["build", "**.ipynb_checkpoints", "**/*.md"]
+
+# `<pkg>-docs build --fast` sets this to drop notebooks for a seconds-fast render.
+if os.environ.get("PYCLAWD_DOCS_FAST"):
+    exclude_patterns.append("**/*.ipynb")

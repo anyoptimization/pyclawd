@@ -4,7 +4,9 @@ build-backend = "hatchling.build"
 
 [project]
 name = "pyclawd"
-version = "0.1.0"
+# Single source of truth for the version: src/pyclawd/__init__.py::__version__
+# (dogfooding exactly what `pyclawd new` scaffolds — no duplicated version string).
+dynamic = ["version"]
 description = "A project-generic, config-driven dev-task runner for Python projects — env-correct execution, tiered tests, cached docs, and a doctor health-check, all driven by a per-project .pyclawd/config.py."
 authors = [{ name = "Julian Blank", email = "blankjul@outlook.com" }]
 readme = "README.md"
@@ -45,6 +47,9 @@ dev = ["pytest>=8", "pytest-xdist>=3", "ruff>=0.6", "mypy>=1.10"]
 [project.optional-dependencies]
 dev = ["pytest>=8", "pytest-xdist>=3", "ruff>=0.6", "mypy>=1.10"]
 
+[tool.hatch.version]
+path = "src/pyclawd/__init__.py"
+
 [tool.hatch.build.targets.wheel]
 packages = ["src/pyclawd"]
 
@@ -56,6 +61,9 @@ packages = ["src/pyclawd"]
 line-length = 100
 target-version = "py310"
 src = ["src", "tests"]
+# docs/ is an isolated sub-project (its own pyproject + toolchain) — pyclawd's
+# own lint/format/typecheck does not reach into it.
+extend-exclude = ["docs"]
 
 [tool.ruff.lint]
 # A sensible, modern default: pyflakes (F), pycodestyle (E), isort (I),

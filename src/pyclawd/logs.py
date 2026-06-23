@@ -15,8 +15,10 @@ Two output strategies live here, deliberately distinct:
   long, silent build you tail separately.
 
 Run ids are ``"%Y%m%d-%H%M%S-<hex4>"`` (timestamp + 2 random bytes) so concurrent
-runs never collide on a log filename. Logs live under :data:`LOG_ROOT`, one
-sub-directory per category (``docs``, ``tests``, …).
+runs never collide on a log filename. Logs live under
+``work_root(project)/logs/`` (see :func:`work_root` — the project can point this
+anywhere via ``Project.work_dir`` or ``$PYCLAWD_WORK_DIR``), one sub-directory per
+category (``docs``, ``tests``, …).
 """
 
 from __future__ import annotations
@@ -31,24 +33,35 @@ from pathlib import Path
 
 import typer
 
+from .project import Project
 from .run import repo_env
 
+#: Environment variable that overrides the per-project work directory at runtime.
+WORK_ENV = "PYCLAWD_WORK_DIR"
 
-def _default_log_root() -> Path:
-    """Where run logs live: ``$PYCLAWD_LOG_ROOT`` if set, else ``<tmpdir>/pyclawd/logs``.
 
-    Uses :func:`tempfile.gettempdir` rather than a hardcoded ``/tmp`` so it is
-    portable (honours ``TMPDIR``, works off Linux), and is overridable for tests
-    or unusual setups via the ``PYCLAWD_LOG_ROOT`` environment variable.
+def work_root(project: Project | None = None) -> Path:
+    """Base directory for pyclawd's transient files (logs, junit, scratch).
+
+    Precedence:
+
+    1. ``$PYCLAWD_WORK_DIR`` — a runtime override.
+    2. :attr:`Project.work_dir` from config — relative paths resolve against the
+       repo root, so e.g. ``".pyclawd/work"`` stays inside the project.
+    3. ``<tempdir>/pyclawd`` — the default (honours ``$TMPDIR``, portable off Linux).
+
+    Run logs live under ``work_root(project)/logs/<category>/``.
     """
-    override = os.environ.get("PYCLAWD_LOG_ROOT")
+    override = os.environ.get(WORK_ENV)
     if override:
-        return Path(override)
-    return Path(tempfile.gettempdir()) / "pyclawd" / "logs"
-
-
-#: Root for every pyclawd run log; each pipeline gets a ``LOG_ROOT/<category>`` dir.
-LOG_ROOT = _default_log_root()
+        return Path(override).expanduser()
+    work_dir = project.work_dir if project is not None else ""
+    if work_dir:
+        base = Path(work_dir).expanduser()
+        if not base.is_absolute() and project is not None and project.root is not None:
+            base = project.root / base
+        return base
+    return Path(tempfile.gettempdir()) / "pyclawd"
 
 
 # ---- run ids & log paths ----------------------------------------------------
@@ -67,13 +80,16 @@ def run_id() -> str:
     return time.strftime("%Y%m%d-%H%M%S") + "-" + secrets.token_hex(2)
 
 
-def category_dir(category: str) -> Path:
-    """Return the log directory for *category* (``LOG_ROOT/<category>``).
+def category_dir(category: str, project: Project | None = None) -> Path:
+    """Return the log directory for *category* (``work_root/logs/<category>``).
 
     Parameters
     ----------
     category : str
         The pipeline name, e.g. ``"docs"`` or ``"tests"``.
+    project : Project or None, optional
+        The loaded project, used to resolve its :attr:`Project.work_dir`. When
+        ``None`` the default work root is used.
 
     Returns
     -------
@@ -81,30 +97,32 @@ def category_dir(category: str) -> Path:
         The directory path. It is **not** created here; the run helpers
         ``mkdir`` it on first write.
     """
-    return LOG_ROOT / category
+    return work_root(project) / "logs" / category
 
 
-def new_run(category: str) -> tuple[str, Path]:
+def new_run(category: str, project: Project | None = None) -> tuple[str, Path]:
     """Mint a run id and its default log path under *category*.
 
     Parameters
     ----------
     category : str
         The pipeline name (see :func:`category_dir`).
+    project : Project or None, optional
+        The loaded project (resolves the work directory).
 
     Returns
     -------
     tuple of (str, pathlib.Path)
-        The run id and ``LOG_ROOT/<category>/<run_id>.log``.
+        The run id and ``work_root/logs/<category>/<run_id>.log``.
     """
     rid = run_id()
-    return rid, category_dir(category) / f"{rid}.log"
+    return rid, category_dir(category, project) / f"{rid}.log"
 
 
 # ---- banner helpers (docs style) --------------------------------------------
 
 
-def run_start(label: str, category: str) -> tuple[str, Path, float]:
+def run_start(label: str, category: str, project: Project | None = None) -> tuple[str, Path, float]:
     """Begin a logged run: write a header to the log and print the start banner.
 
     Parameters
@@ -113,6 +131,8 @@ def run_start(label: str, category: str) -> tuple[str, Path, float]:
         Human-readable run name, e.g. ``"docs build"``.
     category : str
         The pipeline name; selects the log sub-directory.
+    project : Project or None, optional
+        The loaded project (resolves the work directory).
 
     Returns
     -------
@@ -120,7 +140,7 @@ def run_start(label: str, category: str) -> tuple[str, Path, float]:
         The run id, the log path, and a :func:`time.monotonic` start mark to pass
         back to :func:`run_finish`.
     """
-    rid, log = new_run(category)
+    rid, log = new_run(category, project)
     log.parent.mkdir(parents=True, exist_ok=True)
     started = time.strftime("%Y-%m-%d %H:%M:%S")
     with open(log, "a") as fh:

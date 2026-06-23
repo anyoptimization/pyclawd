@@ -130,7 +130,7 @@ def docs_build(
     """
     project = _docs_project_or_exit()
     _preflight_render()  # fail in seconds if pandoc is missing, not after executing
-    run_id, log, t0 = logs.run_start("docs build", "docs")
+    run_id, log, t0 = logs.run_start("docs build", "docs", project)
     cflag = ["--continue"] if cont else []
 
     if fast:
@@ -165,7 +165,7 @@ def docs_run(ctx: typer.Context) -> None:
     Extra args = specific pages. This is the expensive step; render is separate.
     """
     project = _docs_project_or_exit()
-    run_id, log, t0 = logs.run_start("docs run", "docs")
+    run_id, log, t0 = logs.run_start("docs run", "docs", project)
     _docs_run(project, ["compile", *ctx.args], log)
     code = _docs_run(project, ["run", *ctx.args], log)
     logs.run_finish(run_id, log, code, t0)
@@ -187,7 +187,7 @@ def docs_render(
     """
     project = _docs_project_or_exit()
     _preflight_render()
-    run_id, log, t0 = logs.run_start("docs render", "docs")
+    run_id, log, t0 = logs.run_start("docs render", "docs", project)
     code = _docs_run(project, ["build", "--fast"] if fast else ["build"], log)
     logs.run_finish(run_id, log, code, t0)
 
@@ -374,7 +374,7 @@ def docs_serve(
     )
 
     if background:
-        logp = logs.category_dir("docs")
+        logp = logs.category_dir("docs", project)
         logp.mkdir(parents=True, exist_ok=True)
         logf = open(logp / "serve.log", "a")  # noqa: SIM115 - handle outlives this function (detached server)
         proc = subprocess.Popen(cmd, stdout=logf, stderr=subprocess.STDOUT, start_new_session=True)

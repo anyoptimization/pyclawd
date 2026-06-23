@@ -1,0 +1,29 @@
+# Isolated docs toolchain for {{name}} — heavy deps live here, not in the project.
+# Run via `uvx --from ./docs {{pkg}}-docs <verb>` (zero setup), or install these
+# deps into your env and set the runner to `["python", "docs/cli.py"]` instead.
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "{{pkg}}-docs"
+version = "0.1.0"
+description = "Documentation runner for {{name}} (the pyclawd docs toolchain)."
+requires-python = ">=3.10"
+
+dependencies = [
+    "sphinx>=7,<9",
+    "nbsphinx>=0.9,<1",
+    "jupytext>=1.16",
+    "jupyter-cache>=1.0",
+    "nbclient>=0.10",
+    "nbformat>=5.10",
+    "ipykernel>=6.29",
+    # Add your package + its viz/runtime deps here so notebooks can import them.
+]
+
+[project.scripts]
+{{pkg}}-docs = "cli:main"
+
+[tool.setuptools]
+py-modules = ["cli"]

@@ -16,7 +16,18 @@ from pathlib import Path
 import pytest
 import typer
 
+from pyclawd.commands import new as new_mod
+from pyclawd.commands import skills as skills_mod
 from pyclawd.commands.new import _adopt, _new_project, _render, _render_config
+
+
+@pytest.fixture
+def user_skills(tmp_path, monkeypatch):
+    """Redirect the user-scope skills dir to a tmp dir (never touch real ~/.claude)."""
+    dest = tmp_path / "home" / ".claude" / "skills"
+    monkeypatch.setattr(skills_mod, "user_skills_dir", lambda: dest)
+    monkeypatch.setattr(new_mod, "user_skills_dir", lambda: dest)
+    return dest
 
 
 def test_render_substitutes_known_keys_and_leaves_others() -> None:
@@ -57,13 +68,51 @@ def test_new_project_creates_expected_tree(tmp_path: Path, monkeypatch) -> None:
     assert "{{" not in (root / "LICENSE").read_text()
 
 
+def test_new_project_with_docs_scaffolds_a_working_runner(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    _new_project(
+        name="withdocs",
+        force=False,
+        pkg=None,
+        author="A Dev",
+        email="a@b.c",
+        docs=True,
+        no_agent=True,
+        no_skills=True,
+    )
+    root = tmp_path / "withdocs"
+    for rel in (
+        "docs/cli.py",
+        "docs/pyproject.toml",
+        "docs/source/conf.py",
+        "docs/source/index.rst",
+        "docs/source/example.md",
+    ):
+        assert (root / rel).is_file(), f"missing scaffolded docs file: {rel}"
+    cfg = (root / ".pyclawd" / "config.py").read_text()
+    assert "docs=DocsConfig(" in cfg
+    assert 'runner=["python", "docs/cli.py"]' in cfg  # python-in-env default
+    # The docs project's console script is named <pkg>-docs (for the uvx alternative).
+    docs_pyproject = (root / "docs" / "pyproject.toml").read_text()
+    assert "withdocs-docs" in docs_pyproject
+    # Templates fully rendered — no leaked placeholders.
+    assert "{{" not in docs_pyproject
+    assert "{{" not in (root / "docs" / "source" / "example.md").read_text()
+
+
+def test_new_project_without_docs_has_no_docs_dir(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    _new_project(name="nodocs", force=False, pkg=None, author="A", email="a@b.c", no_skills=True)
+    assert not (tmp_path / "nodocs" / "docs").exists()
+
+
 def test_new_project_pkg_override(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.chdir(tmp_path)
     _new_project(name="my-proj", force=False, pkg="myproj", author="A", email="a@b.c")
     assert (tmp_path / "my-proj" / "src" / "myproj" / "__init__.py").is_file()
 
 
-def test_new_project_lands_agent_readiness(tmp_path: Path, monkeypatch) -> None:
+def test_new_project_lands_agent_readiness(tmp_path: Path, monkeypatch, user_skills) -> None:
     monkeypatch.chdir(tmp_path)
     _new_project(name="agentic", force=False, pkg=None, author="A Dev", email="a@b.c")
 
@@ -74,10 +123,10 @@ def test_new_project_lands_agent_readiness(tmp_path: Path, monkeypatch) -> None:
     assert "working in agentic" in agents.read_text()
     assert (root / "CLAUDE.md").read_text().strip() == "@AGENTS.md"
 
-    # The bundled skills are auto-installed into .claude/skills/.
-    skills_dir = root / ".claude" / "skills"
+    # Skills install to USER scope, not vendored into the repo.
+    assert not (root / ".claude" / "skills").exists()
     for name in ("pyclawd-doctor", "pyclawd-tests", "pyclawd-quality", "pyclawd-docs"):
-        assert (skills_dir / name / "SKILL.md").is_file(), f"missing installed skill: {name}"
+        assert (user_skills / name / "SKILL.md").is_file(), f"missing installed skill: {name}"
 
 
 def test_new_project_opt_out_of_agent_readiness(tmp_path: Path, monkeypatch) -> None:
@@ -99,7 +148,7 @@ def test_new_project_opt_out_of_agent_readiness(tmp_path: Path, monkeypatch) -> 
     assert (root / "pyproject.toml").is_file()
 
 
-def test_adopt_yes_lands_agent_readiness(tmp_path: Path, monkeypatch) -> None:
+def test_adopt_yes_lands_agent_readiness(tmp_path: Path, monkeypatch, user_skills) -> None:
     monkeypatch.chdir(tmp_path)
     _adopt(
         force=False,
@@ -113,10 +162,14 @@ def test_adopt_yes_lands_agent_readiness(tmp_path: Path, monkeypatch) -> None:
     )
     assert (tmp_path / "AGENTS.md").is_file()
     assert (tmp_path / "CLAUDE.md").read_text().strip() == "@AGENTS.md"
-    assert (tmp_path / ".claude" / "skills" / "pyclawd-doctor" / "SKILL.md").is_file()
+    # Skills land in user scope, not the adopted repo.
+    assert not (tmp_path / ".claude" / "skills").exists()
+    assert (user_skills / "pyclawd-doctor" / "SKILL.md").is_file()
 
 
-def test_adopt_does_not_clobber_existing_agents_md(tmp_path: Path, monkeypatch) -> None:
+def test_adopt_does_not_clobber_existing_agents_md(
+    tmp_path: Path, monkeypatch, user_skills
+) -> None:
     monkeypatch.chdir(tmp_path)
     (tmp_path / "AGENTS.md").write_text("KEEP ME", encoding="utf-8")
     _adopt(
@@ -131,8 +184,8 @@ def test_adopt_does_not_clobber_existing_agents_md(tmp_path: Path, monkeypatch) 
     )
     # Existing agent doc is preserved untouched.
     assert (tmp_path / "AGENTS.md").read_text() == "KEEP ME"
-    # Skills still get installed.
-    assert (tmp_path / ".claude" / "skills" / "pyclawd-tests" / "SKILL.md").is_file()
+    # Skills still get installed — to user scope.
+    assert (user_skills / "pyclawd-tests" / "SKILL.md").is_file()
 
 
 def test_render_config_basic_shape() -> None:
@@ -143,6 +196,10 @@ def test_render_config_basic_shape() -> None:
     assert "name='demo'" in text
     assert "conda_env=None" in text
     assert "QualityConfig(" in text and "TestConfig(" in text
+    # The scaffold stamps the pyclawd version it was built on (for the compat check).
+    import pyclawd
+
+    assert f"pyclawd_version={pyclawd.__version__!r}" in text
     # No optional blocks when docs/compile are off.
     assert "DocsConfig" not in text
     assert "compile_cmd" not in text

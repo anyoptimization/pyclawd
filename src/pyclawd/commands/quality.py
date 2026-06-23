@@ -135,7 +135,7 @@ def _run_step(verb: str, project: Project, quality: QualityConfig) -> int:
     """
     if verb == "test":
         markers = project.test.markers.get("default", "")
-        return tests.run_suite([], markers, "check", project)
+        return tests.run_suite([], markers, "check", project, jobs=project.test.jobs)
 
     cmd = _step_cmd(verb, quality)
     if not cmd:

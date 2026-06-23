@@ -99,6 +99,52 @@ def test_python_prefix_env_var_handles_quoted_paths(monkeypatch):
 
 
 # --------------------------------------------------------------------------- #
+# logs.work_root — configurable per-project work directory.
+# --------------------------------------------------------------------------- #
+
+
+def test_work_root_defaults_to_tmpdir(monkeypatch):
+    import tempfile
+
+    from pyclawd import logs
+
+    monkeypatch.delenv(logs.WORK_ENV, raising=False)
+    assert logs.work_root(_project()) == Path(tempfile.gettempdir()) / "pyclawd"
+
+
+def test_work_root_uses_absolute_config_value(monkeypatch):
+    from pyclawd import logs
+
+    monkeypatch.delenv(logs.WORK_ENV, raising=False)
+    p = _project(work_dir="/var/run/myproj", root=Path("/repo"))
+    assert logs.work_root(p) == Path("/var/run/myproj")
+
+
+def test_work_root_resolves_relative_config_against_root(monkeypatch):
+    from pyclawd import logs
+
+    monkeypatch.delenv(logs.WORK_ENV, raising=False)
+    p = _project(work_dir=".pyclawd/work", root=Path("/repo"))
+    assert logs.work_root(p) == Path("/repo/.pyclawd/work")
+
+
+def test_work_root_env_var_overrides_config(monkeypatch):
+    from pyclawd import logs
+
+    monkeypatch.setenv(logs.WORK_ENV, "/override/here")
+    p = _project(work_dir="/config/value", root=Path("/repo"))
+    assert logs.work_root(p) == Path("/override/here")
+
+
+def test_category_dir_is_under_work_root(monkeypatch):
+    from pyclawd import logs
+
+    monkeypatch.delenv(logs.WORK_ENV, raising=False)
+    p = _project(work_dir="/w", root=Path("/repo"))
+    assert logs.category_dir("tests", p) == Path("/w/logs/tests")
+
+
+# --------------------------------------------------------------------------- #
 # tests.tier_markers — undefined tiers must degrade, never KeyError-crash.
 # --------------------------------------------------------------------------- #
 
@@ -153,6 +199,40 @@ def test_dispatch_fast_and_all_do_not_crash_on_minimal_markers(monkeypatch):
     assert tests_mod.dispatch("fast", []) == 0
     assert tests_mod.dispatch("all", []) == 0
     assert captured == {"fast": "", "all": ""}
+
+
+def test_all_tiers_parallelize_with_config_jobs(monkeypatch):
+    """run / fast / all all forward TestConfig.jobs (xdist), not just fast."""
+    from pyclawd import tests as tests_mod
+
+    p = _project(
+        test=TestConfig(
+            tests_dir="tests/",
+            classname_prefix="tests.",
+            integration_files=[],
+            markers={"default": "", "fast": "", "all": ""},
+            jobs="3",
+        ),
+        root=Path("/tmp/repo"),
+    )
+    monkeypatch.setattr(tests_mod, "load_project_or_exit", lambda: p)
+    seen = {}
+
+    def fake_run_suite(extra_args, markers, label, project, jobs=None):
+        seen[label] = jobs
+        return 0
+
+    monkeypatch.setattr(tests_mod, "run_suite", fake_run_suite)
+    for verb in ("run", "fast", "all"):
+        tests_mod.dispatch(verb, [])
+    assert seen == {"run": "3", "fast": "3", "all": "3"}
+
+
+def test_test_config_jobs_defaults_to_auto():
+    assert (
+        TestConfig(tests_dir="t/", classname_prefix="t.", integration_files=[], markers={}).jobs
+        == "auto"
+    )
 
 
 # --------------------------------------------------------------------------- #

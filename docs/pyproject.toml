@@ -1,0 +1,29 @@
+# Isolated docs toolchain for pyclawd — heavy deps live here, not in pyclawd.
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pyclawd-docs"
+version = "0.1.0"
+description = "Minimal documentation runner for pyclawd — the worked example of a `pyclawd docs` toolchain."
+requires-python = ">=3.10"
+
+# The jupytext (.md -> .ipynb) + jupyter-cache (execute/cache) + sphinx/nbsphinx
+# (render) stack that `pyclawd docs` drives. Deliberately small — a real project
+# would add its own theme, viz libraries, and the package being documented.
+dependencies = [
+    "sphinx>=7,<9",
+    "nbsphinx>=0.9,<1",
+    "jupytext>=1.16",
+    "jupyter-cache>=1.0",
+    "nbclient>=0.10",
+    "nbformat>=5.10",
+    "ipykernel>=6.29",
+]
+
+[project.scripts]
+pyclawd-docs = "cli:main"
+
+[tool.setuptools]
+py-modules = ["cli"]

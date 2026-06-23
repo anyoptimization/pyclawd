@@ -40,6 +40,58 @@ def _module_version(mod) -> str:
         return "?"
 
 
+def _check_pyclawd() -> Check:
+    """Report which pyclawd is operating on this project — version and source.
+
+    When a single (often editable) pyclawd drives many repos, this answers "what
+    version is running here, and from where?" The location distinguishes an
+    editable dev checkout (``…/src/pyclawd``) from an installed wheel
+    (``…/site-packages/pyclawd``).
+    """
+    import pyclawd
+
+    version = getattr(pyclawd, "__version__", "?")
+    location = os.path.dirname(pyclawd.__file__)
+    editable = " (editable)" if f"{os.sep}site-packages{os.sep}" not in location else ""
+    return Check(OK, "pyclawd", f"{version}{editable} — {location}")
+
+
+def _mm(version: str) -> tuple[int, int] | None:
+    """Parse a ``major.minor`` tuple from a version string, or ``None`` if unparseable."""
+    parts = version.strip().split(".")
+    try:
+        return (int(parts[0]), int(parts[1]))
+    except (IndexError, ValueError):
+        return None
+
+
+def _check_pyclawd_compat(declared: str) -> Check | None:
+    """Compare the config's declared pyclawd version to the running one.
+
+    Returns ``None`` when the project declares no ``pyclawd_version`` (check
+    disabled). Otherwise OK on a matching ``major.minor``, else WARN that the
+    project was built on a different pyclawd and may need migration.
+    """
+    if not declared:
+        return None
+    import pyclawd
+
+    running = getattr(pyclawd, "__version__", "?")
+    want, have = _mm(declared), _mm(running)
+    if want is None or have is None:
+        return Check(
+            WARN, "pyclawd compat", f"built on {declared}, running {running} (unparseable)"
+        )
+    if want == have:
+        return Check(OK, "pyclawd compat", f"config built on {declared} matches running {running}")
+    return Check(
+        WARN,
+        "pyclawd compat",
+        f"config built on pyclawd {declared}, running {running} — "
+        "review CHANGELOG; migration may be needed",
+    )
+
+
 def _check_python() -> Check:
     v = sys.version_info
     s = f"{v.major}.{v.minor}.{v.micro}"
@@ -116,6 +168,20 @@ def _check_interpreter(project: Project) -> Check:
     return Check(WARN, "python exec", f"{shown}  — {launcher!r} not found on PATH")
 
 
+def _check_workdir(project: Project) -> Check:
+    """Report where pyclawd writes this project's transient files (logs, junit)."""
+    from .logs import WORK_ENV, work_root
+
+    root = work_root(project)
+    if os.environ.get(WORK_ENV):
+        source = f"via ${WORK_ENV}"
+    elif project.work_dir:
+        source = "config: work_dir"
+    else:
+        source = "default tmpdir"
+    return Check(OK, "work dir", f"{root}  ({source})")
+
+
 def _check_docs(project: Project) -> list[Check]:
     """Docs prerequisites, surfaced only when the project configures docs.
 
@@ -187,6 +253,7 @@ def collect(project: Project | None = None) -> list[Check]:
     # Degrade gracefully when run outside any project.
     if project is None:
         return [
+            _check_pyclawd(),
             _check_python(),
             Check(
                 WARN, "project config", "no .pyclawd/config.py found — run pyclawd inside a project"
@@ -194,10 +261,15 @@ def collect(project: Project | None = None) -> list[Check]:
             _check_git(None),
         ]
 
-    checks: list[Check] = [
+    checks: list[Check] = [_check_pyclawd()]
+    compat = _check_pyclawd_compat(project.pyclawd_version)
+    if compat is not None:
+        checks.append(compat)
+    checks += [
         _check_python(),
         _check_conda_env(project.conda_env),
         _check_interpreter(project),
+        _check_workdir(project),
     ]
 
     # Project import + compiled-extension status come from the config hook. A

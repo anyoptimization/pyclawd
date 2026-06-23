@@ -7,9 +7,9 @@ agent *what to run and when*. This module exposes them to projects:
 
 - ``pyclawd skills list`` — show the bundled skills with their one-line
   descriptions (parsed from each ``SKILL.md`` frontmatter).
-- ``pyclawd skills install`` — copy (default) or symlink each ``pyclawd-*`` skill
-  directory into a target (default ``<project-root>/.claude/skills/``), so the
-  adopting project's agent picks them up.
+- ``pyclawd skills install`` — copy (default) or symlink each bundled skill
+  directory into a target (default ``~/.claude/skills/`` — **user scope**, since the
+  skills are generic), so your agent picks them up across every project.
 
 Everything is discovered through :func:`importlib.resources.files`, so it works
 identically from a source checkout or an installed wheel — no ``__file__`` path
@@ -31,12 +31,18 @@ from pathlib import Path
 
 import typer
 
-from ..discovery import load_project
-
 #: Directory-name prefix that marks a bundled skill (``pyclawd-doctor`` etc.).
 SKILL_PREFIX = "pyclawd-"
-#: Default install location, relative to the resolved project (or current) root.
-DEFAULT_TARGET = Path(".claude") / "skills"
+
+
+def user_skills_dir() -> Path:
+    """User-scope skills directory (``~/.claude/skills``) — the default install target.
+
+    The bundled pyclawd skills are **generic** (nothing project-specific), so they
+    belong in user scope — installed once and shared across every repo — rather than
+    vendored into each project's ``.claude/skills/`` (and committed by accident).
+    """
+    return Path.home() / ".claude" / "skills"
 
 
 # --------------------------------------------------------------------------- #
@@ -101,21 +107,22 @@ def skill_description(name: str) -> str:
 
 
 def install_skills(
-    target: Path,
+    target: Path | None = None,
     *,
     symlink: bool = False,
     force: bool = False,
 ) -> tuple[list[str], list[str]]:
     """Install the bundled skills into *target*, returning ``(installed, skipped)``.
 
-    Each ``pyclawd-*`` skill directory is copied (default) or symlinked into
-    *target* (created if missing). An existing destination is skipped unless
-    *force* is set, in which case it is replaced.
+    Each bundled skill directory is copied (default) or symlinked into *target*
+    (created if missing). An existing destination is skipped unless *force* is set,
+    in which case it is replaced.
 
     Parameters
     ----------
-    target : pathlib.Path
-        Destination directory (e.g. ``<root>/.claude/skills``).
+    target : pathlib.Path or None, optional
+        Destination directory. Defaults to user scope
+        (:func:`user_skills_dir`, ``~/.claude/skills``) when ``None``.
     symlink : bool, optional
         Symlink each skill dir instead of copying it. Defaults to ``False``.
     force : bool, optional
@@ -127,6 +134,8 @@ def install_skills(
     tuple of (list of str, list of str)
         ``(installed, skipped)`` skill names.
     """
+    if target is None:
+        target = user_skills_dir()
     target.mkdir(parents=True, exist_ok=True)
     installed: list[str] = []
     skipped: list[str] = []
@@ -155,18 +164,14 @@ def install_skills(
 
 
 def _resolve_target(target: str | None) -> Path:
-    """Resolve the install target: explicit *target*, else ``<root>/.claude/skills``.
+    """Resolve the install target: explicit *target*, else user scope.
 
-    When *target* is given it is taken relative to the current directory (or used
-    as-is if absolute). Otherwise the destination is :data:`DEFAULT_TARGET` under
-    the discovered project root, falling back to the current working directory
-    when not inside a pyclawd project.
+    When *target* is given it is used as-is (``~`` expanded). Otherwise the
+    generic skills install to user scope (:func:`user_skills_dir`).
     """
     if target is not None:
         return Path(target).expanduser()
-    project = load_project()
-    base = project.root if (project is not None and project.root is not None) else Path.cwd()
-    return base / DEFAULT_TARGET
+    return user_skills_dir()
 
 
 # --------------------------------------------------------------------------- #
@@ -194,7 +199,7 @@ def install(
         None,
         "--target",
         metavar="DIR",
-        help="Install destination (default: <project-root>/.claude/skills).",
+        help="Install destination (default: ~/.claude/skills — user scope).",
     ),
     symlink: bool = typer.Option(
         False, "--symlink", help="Symlink each skill dir instead of copying it."

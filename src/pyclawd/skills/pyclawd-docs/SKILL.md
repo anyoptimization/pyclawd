@@ -44,3 +44,4 @@ The cache stores **only successes**, so a failed page stays uncached and the nex
 | Per-cell timeout | Raise the timeout (e.g. the project's docs timeout env var). |
 | Render fails but execution was fine | Re-`render` only — don't pay re-execution. |
 | Edited the wrong file | Edit the source (`.md`), never the generated notebook. |
+| **Edited the runner but `uvx` runs stale code** (`invalid choice`, old behavior persists after edits) | `uvx --from ./docs` caches the built wheel **by version, not content**. Bump the runner's version, run with `--refresh-package <name>`, or use a non-uvx `runner` (e.g. `["python", "docs/cli.py"]`) while iterating. |

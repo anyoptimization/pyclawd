@@ -12,6 +12,8 @@ project = Project(
     name="pyclawd",
     conda_env=None,  # env-agnostic — runs in whatever env it's installed into
     root_markers=["pyproject.toml", "src/pyclawd/__init__.py"],
+    # The pyclawd this config targets; `pyclawd doctor` WARNs on a minor mismatch.
+    pyclawd_version="0.1.0",
     # Pure-python: no compile or dist step, nothing project-specific to clean.
     compile_cmd=[],
     dist_cmd=[],

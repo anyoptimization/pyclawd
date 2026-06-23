@@ -36,7 +36,8 @@ from pathlib import Path
 
 import typer
 
-from .skills import DEFAULT_TARGET, bundled_skill_names, install_skills
+from .. import __version__
+from .skills import bundled_skill_names, install_skills, user_skills_dir
 
 # Template file name -> output path (relative to the project root). ``{pkg}`` in
 # an output path is filled with the package import name. Template files use safe,
@@ -53,6 +54,17 @@ _SKELETON: dict[str, str] = {
     "init.py.tmpl": "src/{pkg}/__init__.py",
     "py.typed.tmpl": "src/{pkg}/py.typed",
     "test_smoke.py.tmpl": "tests/test_smoke.py",
+}
+
+# Docs runner skeleton — emitted only with --docs. A self-contained ./docs project
+# (its own pyproject + a ~150-line cli.py runner) plus a sample executed page, so
+# `pyclawd docs build` works out of the box.
+_DOCS_SKELETON: dict[str, str] = {
+    "docs_cli.py.tmpl": "docs/cli.py",
+    "docs_pyproject.toml.tmpl": "docs/pyproject.toml",
+    "docs_conf.py.tmpl": "docs/source/conf.py",
+    "docs_index.rst.tmpl": "docs/source/index.rst",
+    "docs_example.md.tmpl": "docs/source/example.md",
 }
 
 
@@ -142,17 +154,39 @@ def _write_agent_guide(root: Path, ctx: dict[str, str]) -> None:
         typer.secho("✓ wrote CLAUDE.md", fg="green")
 
 
-def _install_project_skills(root: Path) -> None:
-    """Install the bundled ``pyclawd-*`` skills into ``<root>/.claude/skills/``."""
-    installed, skipped = install_skills(root / DEFAULT_TARGET, force=False)
+def _install_docs(root: Path, ctx: dict[str, str]) -> None:
+    """Scaffold a working ``./docs`` runner + sample page (skips existing files)."""
+    tdir = _templates_dir()
+    wrote = False
+    for tmpl_name, out_rel in _DOCS_SKELETON.items():
+        out_path = root / out_rel
+        if out_path.exists():
+            typer.secho(f"note: {out_rel} exists — leaving it untouched.", fg="yellow")
+            continue
+        _write(out_path, _render((tdir / tmpl_name).read_text(encoding="utf-8"), ctx))
+        wrote = True
+    if wrote:
+        typer.secho(
+            "✓ scaffolded docs/ — a working `pyclawd docs` runner + sample page", fg="green"
+        )
+
+
+def _install_project_skills() -> None:
+    """Install the bundled pyclawd skills into user scope (``~/.claude/skills/``).
+
+    The skills are generic, so they live in user scope (shared across repos) rather
+    than being vendored into this project's ``.claude/skills/``.
+    """
+    dest = user_skills_dir()
+    installed, skipped = install_skills(force=False)  # default = user scope
     if installed:
         typer.secho(
-            f"✓ installed {len(installed)} skill(s) into {DEFAULT_TARGET}: " + ", ".join(installed),
+            f"✓ installed {len(installed)} skill(s) into {dest}: " + ", ".join(installed),
             fg="green",
         )
     if skipped:
         typer.secho(
-            f"  · {len(skipped)} skill(s) already present (use --force to refresh)",
+            f"  · {len(skipped)} skill(s) already present in {dest} (use --force to refresh)",
             fg="bright_black",
         )
     if not bundled_skill_names():
@@ -216,20 +250,11 @@ def _render_config(
 
     docs_block = ""
     if docs:
-        docs_block = (
-            "    # NOTE: `runner` must point at a docs toolchain you provide (an\n"
-            "    # isolated ./docs project exposing build/run/compile/exec/clean —\n"
-            "    # typically sphinx + nbsphinx + jupyter-cache). pyclawd does NOT\n"
-            "    # scaffold it; `pyclawd docs` reports 'not configured' until it exists.\n"
-            "    docs=DocsConfig(\n"
-            '        runner=["uvx", "--from", "./docs", "docs"],\n'
-            '        source_dir="docs/source",\n'
-            '        cache_dir="docs/.jupyter_cache",\n'
-            '        cache_db="docs/.jupyter_cache/global.db",\n'
-            '        build_html="docs/build/html",\n'
-            '        branch="main",\n'
-            "    ),\n"
-        )
+        # Paths default to docs/... in DocsConfig, so only the runner is needed.
+        # Default: run the builder in THIS env — `pip install -e ./docs` once, then
+        # `pyclawd docs build`. Swap to ["uvx", "--from", "./docs", "<pkg>-docs"] for
+        # an isolated env (no install; but uvx caches by version — see pyclawd-docs).
+        docs_block = '    docs=DocsConfig(\n        runner=["python", "docs/cli.py"],\n    ),\n'
 
     return (
         f'"""{name}\'s pyclawd config — drives `pyclawd test/lint/typecheck/...`'
@@ -240,6 +265,9 @@ def _render_config(
         f"    name={name!r},\n"
         f"    conda_env={conda_repr},\n"
         '    root_markers=["pyproject.toml"],\n'
+        "    # The pyclawd this config was built on. `pyclawd doctor` WARNs if the\n"
+        "    # running pyclawd has drifted to a different minor (migration may be needed).\n"
+        f"    pyclawd_version={__version__!r},\n"
         "    # Default directory `pyclawd ls` lists (the code/source root).\n"
         '    src_dir="src",\n'
         f"{build_block}"
@@ -353,28 +381,30 @@ def _adopt(
     ctx = {
         "name": name_v,
         "pkg": pkg_v,
+        "author": _git_config("user.name", "Your Name"),
         "owner": _default_pkg(_git_config("user.name", "your-org")).lower() or "your-org",
     }
+    if docs_v:
+        _install_docs(cwd, ctx)
     if not no_agent and _ask_bool(
         None, "Write AGENTS.md + CLAUDE.md agent guide?", True, interactive
     ):
         _write_agent_guide(cwd, ctx)
     if not no_skills and _ask_bool(
-        None, "Install bundled pyclawd skills into .claude/skills/?", True, interactive
+        None,
+        "Install bundled pyclawd skills into ~/.claude/skills/ (user scope)?",
+        True,
+        interactive,
     ):
-        _install_project_skills(cwd)
+        _install_project_skills()
 
     typer.echo("\nNext steps:")
     typer.echo("  pyclawd root        # confirm pyclawd now resolves this repo")
     typer.echo("  pyclawd doctor      # health-check the dev env")
     typer.echo("  pyclawd test        # run the test suite")
     if docs_v:
-        typer.secho(
-            "\nNote: docs is enabled but pyclawd does not scaffold the ./docs runner.\n"
-            "  Provide an isolated docs toolchain (sphinx + nbsphinx + jupyter-cache)\n"
-            "  matching `project.docs.runner`, or `pyclawd docs` stays unconfigured.",
-            fg="yellow",
-        )
+        typer.echo("  pip install -e ./docs   # docs build deps (sphinx, nbsphinx, …)")
+        typer.echo("  pyclawd docs build      # build the scaffolded docs/")
 
 
 # --------------------------------------------------------------------------- #
@@ -389,6 +419,7 @@ def _new_project(
     pkg: str | None,
     author: str,
     email: str,
+    docs: bool = False,
     no_agent: bool = False,
     no_skills: bool = False,
 ) -> None:
@@ -432,16 +463,19 @@ def _new_project(
         pkg=pkg_v,
         conda_env=None,
         tests_dir="tests/",
-        docs=False,
+        docs=docs,
         compile_step=False,
     )
     _write(dest / ".pyclawd" / "config.py", config)
+
+    if docs:
+        _install_docs(dest, ctx)
 
     # Agent-readiness: make the fresh project Claude-Code-ready out of the box.
     if not no_agent:
         _write_agent_guide(dest, ctx)
     if not no_skills:
-        _install_project_skills(dest)
+        _install_project_skills()
 
     typer.secho(f"✓ scaffolded {name} at {dest}", fg="green")
     typer.echo("\nNext steps:")
@@ -449,6 +483,8 @@ def _new_project(
     typer.echo("  git init && git add -A && git commit -m 'Initial commit'")
     typer.echo("  pip install -e . --group dev")
     typer.echo("  pyclawd check       # format-check -> lint -> typecheck -> test")
+    if docs:
+        typer.echo("  pip install -e ./docs && pyclawd docs build   # build the docs/")
 
 
 # --------------------------------------------------------------------------- #
@@ -473,7 +509,9 @@ def new(
         None, "--conda-env", help="ADOPT: conda env the project runs in (blank = none)."
     ),
     tests_dir: str = typer.Option(None, "--tests-dir", help="ADOPT: tests directory."),
-    docs: bool = typer.Option(None, "--docs/--no-docs", help="ADOPT: does the project build docs?"),
+    docs: bool = typer.Option(
+        None, "--docs/--no-docs", help="Scaffold a working docs/ runner + DocsConfig."
+    ),
     compile_step: bool = typer.Option(
         None, "--compile/--no-compile", help="ADOPT: does the project have a build step?"
     ),
@@ -509,6 +547,7 @@ def new(
         pkg=pkg,
         author=author or _git_config("user.name", "Your Name"),
         email=email or _git_config("user.email", "you@example.com"),
+        docs=bool(docs),
         no_agent=no_agent,
         no_skills=no_skills,
     )

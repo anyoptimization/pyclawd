@@ -10,8 +10,9 @@ Tiers come from the loaded project's ``test.markers`` config (keyed ``fast`` /
 ``default`` is the comprehensive gate, and ``all`` is everything. No tier marker
 expression is hardcoded here — they all live in ``.pyclawd/config.py``.
 
-Logs land under ``<LOG_ROOT>/tests/<label>-<run-id>.log`` (see :data:`pyclawd.logs.LOG_ROOT`)
-with a sibling ``.junit.xml`` that the timing/summary views parse. Pytest keeps the authoritative
+Logs land under ``<work_dir>/logs/tests/<label>-<run-id>.log`` (the work dir is
+project-configurable — see :func:`pyclawd.logs.work_root`) with a sibling
+``.junit.xml`` that the timing/summary views parse. Pytest keeps the authoritative
 last-failed set in ``.pytest_cache/v/cache/lastfailed`` — ``failures`` reads that, so
 it is never stale relative to the runner.
 """
@@ -37,12 +38,12 @@ def _root_hash(root: Path) -> str:
 
 
 def _log_dir(project: Project) -> Path:
-    """Per-project test-log directory: ``<LOG_ROOT>/tests/<roothash>/``.
+    """Per-project test-log directory: ``<work_dir>/logs/tests/<roothash>/``.
 
     Namespacing by the project root keeps ``test timings`` in one repo from ever
     reading another repo's last run (the global pointer used to leak across
     projects)."""
-    return category_dir("tests") / _root_hash(project.root if project.root else Path.cwd())
+    return category_dir("tests", project) / _root_hash(project.root if project.root else Path.cwd())
 
 
 def _junit_ptr(project: Project) -> Path:
@@ -155,7 +156,7 @@ def run_suite(
     ]
     if not has_target(extra_args):
         cmd.append(project.test.tests_dir)
-    if jobs:
+    if jobs and "-n" not in extra_args:  # explicit -n in the caller's args wins
         cmd += ["-n", jobs]
     if "-m" not in extra_args and markers:
         cmd += ["-m", markers]
@@ -276,12 +277,13 @@ def fix(extra_args: list[str], project: Project) -> int:
 
 def dispatch(verb: str, args: list[str]) -> int:
     project = load_project_or_exit()
+    jobs = project.test.jobs
     if verb == "run":
-        return run_suite(args, tier_markers(project, "default"), "run", project)
+        return run_suite(args, tier_markers(project, "default"), "run", project, jobs=jobs)
     if verb == "fast":
-        return run_suite(args, tier_markers(project, "fast"), "fast", project, jobs="auto")
+        return run_suite(args, tier_markers(project, "fast"), "fast", project, jobs=jobs)
     if verb == "all":
-        return run_suite(args, tier_markers(project, "all"), "all", project)
+        return run_suite(args, tier_markers(project, "all"), "all", project, jobs=jobs)
     if verb == "failures":
         return print_failures(project)
     if verb == "timings":

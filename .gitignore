@@ -216,3 +216,6 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Generic pyclawd skills live in user scope (~/.claude/skills), not the repo.
+.claude/skills/

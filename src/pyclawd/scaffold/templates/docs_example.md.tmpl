@@ -1,0 +1,24 @@
+---
+jupytext:
+  text_representation:
+    format_name: markdown
+kernelspec:
+  display_name: Python 3
+  name: python3
+---
+
+# An executed example page
+
+This `.md` file is the **source**. `pyclawd docs compile` converts it to a notebook
+via jupytext, `pyclawd docs run` executes and caches it, and nbsphinx renders the
+result — including the output of the code cell below.
+
+```python
+import {{pkg}}
+
+print("docs for {{name}}, version", {{pkg}}.__version__)
+```
+
+Edit this page, then `pyclawd docs build` — only changed notebooks re-execute
+(jupyter-cache). `pyclawd docs timings` shows how long each took; `pyclawd docs
+failures` flags any that raised.

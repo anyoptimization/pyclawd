@@ -68,6 +68,29 @@ class Check:
 class DocsConfig:
     """Documentation-build settings for ``pyclawd docs``.
 
+    Only :attr:`runner` is required; the path fields default to the conventional
+    ``docs/...`` layout, so ``DocsConfig(runner=[...])`` just works.
+
+    Runner contract
+    ---------------
+    ``pyclawd docs`` is a thin orchestrator — it appends a sub-verb to
+    :attr:`runner` and runs it. A runner **must** implement these verbs (note the
+    pyclawd verb ≠ runner verb in two cases):
+
+    ===================== ============================ ==================================
+    pyclawd command       runner invocation            does
+    ===================== ============================ ==================================
+    ``docs compile``      ``compile [pages]``          ``.md`` → ``.ipynb`` (no exec)
+    ``docs run``          ``compile`` then ``run``     execute notebooks, cache results
+    ``docs build``        ``all [--continue]``         compile → run → render HTML
+    ``docs build --fast`` ``build --fast``             render only (no notebooks)
+    ``docs render``       ``build``                    render HTML from cached notebooks
+    ``docs exec <page>``  ``exec <page>``              execute ONE, stream the error
+    ``docs clean``        ``clean``                    drop build + generated ``.ipynb``
+    ===================== ============================ ==================================
+
+    See ``pyclawd``'s own ``docs/`` for a ~150-line reference runner.
+
     Backend assumption
     ------------------
     The build verbs (``build`` / ``run`` / ``compile`` / ``render`` / ``exec`` /
@@ -106,11 +129,11 @@ class DocsConfig:
     """
 
     runner: list[str]
-    source_dir: str
-    cache_dir: str
-    cache_db: str
-    build_html: str
-    branch: str
+    source_dir: str = "docs/source"
+    cache_dir: str = "docs/.jupyter_cache"
+    cache_db: str = "docs/.jupyter_cache/global.db"
+    build_html: str = "docs/build/html"
+    branch: str = "main"
 
 
 @dataclass(frozen=True)
@@ -139,12 +162,19 @@ class TestConfig:
         Tier name → pytest ``-m`` marker expression (see above). A tier the
         project does not define simply applies no ``-m`` filter (it is **not** an
         error to omit ``fast`` or ``all``), so the tier set is fully customisable.
+    jobs : str, optional
+        pytest-xdist worker count applied to the logged tiers (``run`` / ``fast`` /
+        ``all`` and the ``check`` test step). ``"auto"`` (the default) runs every
+        tier in parallel across all cores; ``""`` runs serial; an integer string
+        (e.g. ``"4"``) pins the worker count. Requires ``pytest-xdist`` (in the
+        scaffold's dev group). An explicit ``-n`` in the command always wins.
     """
 
     tests_dir: str
     classname_prefix: str
     integration_files: list[str]
     markers: dict[str, str]
+    jobs: str = "auto"
 
 
 @dataclass(frozen=True)
@@ -254,6 +284,21 @@ class Project:
         The ``PYCLAWD_PYTHON`` environment variable overrides this at runtime
         (``shlex``-split, so it may be a full command) for one-off interpreter
         swaps without editing config.
+    pyclawd_version : str, optional
+        The pyclawd version this config was authored against — stamped
+        automatically by ``pyclawd new`` (the running ``pyclawd.__version__``).
+        ``pyclawd doctor`` compares it to the installed pyclawd and WARNs on a
+        ``major.minor`` mismatch, so a project built on an older pyclawd surfaces a
+        "migration may be needed" signal instead of silently drifting. Empty (the
+        default) disables the check.
+    work_dir : str, optional
+        Base directory for pyclawd's transient per-project files — run logs, junit
+        xml, and other scratch artifacts. Empty (the default) uses
+        ``<tempdir>/pyclawd`` (honouring ``$TMPDIR``); set it to keep a project's
+        artifacts somewhere predictable (e.g. ``"/tmp/myproject"`` or
+        ``".pyclawd/work"``). Relative paths resolve against the repo root. The
+        ``PYCLAWD_WORK_DIR`` environment variable overrides it at runtime. Logs live
+        under ``<work_dir>/logs/<category>/``.
     compile_cmd : list of str, optional
         Args passed to the dev Python for ``pyclawd compile``
         (e.g. ``["setup.py", "build_ext", "--inplace"]``). Empty (the default)
@@ -301,6 +346,8 @@ class Project:
     doctor: DoctorConfig
 
     python_cmd: list[str] = field(default_factory=list)
+    pyclawd_version: str = ""
+    work_dir: str = ""
 
     compile_cmd: list[str] = field(default_factory=list)
     dist_cmd: list[str] = field(default_factory=list)

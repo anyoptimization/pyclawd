@@ -124,6 +124,48 @@ def test_run_doctor_returns_0_when_clean(monkeypatch):
     assert doctor.run_doctor() == 0
 
 
+# ---- pyclawd version + compatibility ----------------------------------------
+
+
+def test_check_pyclawd_reports_version_and_location():
+    import pyclawd
+
+    c = doctor._check_pyclawd()
+    assert c.status == OK
+    assert c.name == "pyclawd"
+    assert pyclawd.__version__ in c.detail
+
+
+def test_mm_parses_major_minor():
+    assert doctor._mm("0.1.0") == (0, 1)
+    assert doctor._mm("2.10.3") == (2, 10)
+    assert doctor._mm("nonsense") is None
+
+
+def test_compat_disabled_when_unset():
+    assert doctor._check_pyclawd_compat("") is None
+
+
+def test_compat_ok_when_matching_running_version():
+    import pyclawd
+
+    c = doctor._check_pyclawd_compat(pyclawd.__version__)
+    assert c is not None and c.status == OK
+
+
+def test_compat_warns_on_minor_mismatch():
+    c = doctor._check_pyclawd_compat("99.99.0")
+    assert c is not None and c.status == WARN
+    assert "migration" in c.detail
+
+
+def test_compat_row_appears_in_collect_when_declared():
+    project = _project(pyclawd_version="99.99.0")
+    rows = {c.name: c for c in doctor.collect(project)}
+    assert "pyclawd compat" in rows
+    assert rows["pyclawd compat"].status == WARN
+
+
 # ---- docs prerequisite check ------------------------------------------------
 
 

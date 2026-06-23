@@ -1,0 +1,5 @@
+build/
+*.ipynb
+.jupyter_cache/
+*.egg-info/
+__pycache__/
