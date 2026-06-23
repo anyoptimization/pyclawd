@@ -1,0 +1,30 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "pyclawd"
+version = "0.1.0"
+description = "A project-generic, config-driven dev-task runner for Python projects — env-correct execution, tiered tests, cached docs, and a doctor health-check, all driven by a per-project .pyclawd/config.py."
+authors = [{ name = "Julian Blank", email = "blankjul@outlook.com" }]
+readme = "README.md"
+license = "Apache-2.0"
+requires-python = ">=3.10"
+keywords = ["developer-tools", "task-runner", "cli", "testing", "documentation"]
+dependencies = [
+    "typer>=0.12",
+    "rich>=13",
+]
+
+[project.urls]
+Homepage = "https://github.com/blankjul/pyclawd"
+Source = "https://github.com/blankjul/pyclawd"
+
+[project.scripts]
+pyclawd = "pyclawd.cli:app"
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "pyflakes"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/pyclawd"]
