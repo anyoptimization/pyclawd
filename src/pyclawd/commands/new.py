@@ -31,6 +31,7 @@ from __future__ import annotations
 
 import datetime
 import subprocess
+import sys
 from importlib.resources import files
 from pathlib import Path
 
@@ -125,6 +126,33 @@ def _write(path: Path, content: str) -> None:
     """Create parent dirs and write *content* to *path* (UTF-8)."""
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(content, encoding="utf-8")
+
+
+def _interactive(yes: bool) -> bool:
+    """Whether to prompt the user: only in a real terminal, and not under ``--yes``.
+
+    This is the agent-friendly switch: an AI agent / CI / pipe has **no TTY**, so
+    prompts are skipped and flags + defaults drive everything — ``pyclawd new``
+    never hangs waiting on stdin. A human at a terminal gets the interactive picker.
+    """
+    return not yes and sys.stdin.isatty()
+
+
+def _print_plan(target: Path, components: list[tuple[str, bool]], *, dry_run: bool) -> None:
+    """Show the resolved component selection (what will / won't be included).
+
+    With *dry_run* it is the whole output — nothing is written — so an agent (or a
+    human) can preview exactly what ``pyclawd new`` would create before committing.
+    """
+    typer.secho("\npyclawd new — plan:", bold=True)
+    typer.echo(f"  target: {target}")
+    for label, included in components:
+        if included:
+            typer.secho(f"  ✓ {label}", fg="green")
+        else:
+            typer.secho(f"  · {label}  (skipped)", fg="bright_black")
+    if dry_run:
+        typer.secho("\ndry run — nothing written. Re-run without --dry-run to create.", fg="yellow")
 
 
 # --------------------------------------------------------------------------- #
@@ -334,6 +362,7 @@ def _adopt(
     yes: bool,
     no_agent: bool = False,
     no_skills: bool = False,
+    dry_run: bool = False,
 ) -> None:
     """Write a ``./.pyclawd/config.py`` for the current repository.
 
@@ -356,15 +385,33 @@ def _adopt(
         )
         raise typer.Exit(1)
 
-    interactive = not yes
+    interactive = _interactive(yes)
     name_v = _ask(name, "Project name", cwd.name, interactive)
     pkg_v = _ask(pkg, "Package import name", _default_pkg(name_v), interactive)
     env_v = _ask(conda_env, "Conda env (blank = none)", "", interactive)
     tests_v = _ask(tests_dir, "Tests directory", "tests/", interactive)
-    docs_v = _ask_bool(docs, "Does this project build docs?", False, interactive)
-    compile_v = _ask_bool(
-        compile_step, "Does this project have a build/compile step?", False, interactive
+    docs_v = _ask_bool(docs, "Include a docs/ runner + DocsConfig?", False, interactive)
+    compile_v = _ask_bool(compile_step, "Include a build/compile step?", False, interactive)
+    agent_v = _ask_bool(
+        False if no_agent else None, "Write AGENTS.md + CLAUDE.md?", True, interactive
     )
+    skills_v = _ask_bool(
+        False if no_skills else None, "Install pyclawd skills (user scope)?", True, interactive
+    )
+
+    _print_plan(
+        target,
+        [
+            (".pyclawd/config.py + quality/test/doctor", True),
+            ("docs/ runner + DocsConfig", docs_v),
+            ("build/compile step", compile_v),
+            ("AGENTS.md + CLAUDE.md", agent_v),
+            ("pyclawd skills → ~/.claude/skills", skills_v),
+        ],
+        dry_run=dry_run,
+    )
+    if dry_run:
+        return
 
     content = _render_config(
         name=name_v,
@@ -377,7 +424,6 @@ def _adopt(
     _write(target, content)
     typer.secho(f"✓ wrote {target.relative_to(cwd)}", fg="green")
 
-    # Agent-readiness — offer (default yes), skippable, scriptable.
     ctx = {
         "name": name_v,
         "pkg": pkg_v,
@@ -386,16 +432,9 @@ def _adopt(
     }
     if docs_v:
         _install_docs(cwd, ctx)
-    if not no_agent and _ask_bool(
-        None, "Write AGENTS.md + CLAUDE.md agent guide?", True, interactive
-    ):
+    if agent_v:
         _write_agent_guide(cwd, ctx)
-    if not no_skills and _ask_bool(
-        None,
-        "Install bundled pyclawd skills into ~/.claude/skills/ (user scope)?",
-        True,
-        interactive,
-    ):
+    if skills_v:
         _install_project_skills()
 
     typer.echo("\nNext steps:")
@@ -419,17 +458,19 @@ def _new_project(
     pkg: str | None,
     author: str,
     email: str,
-    docs: bool = False,
+    docs: bool | None = None,
+    compile_step: bool | None = None,
     no_agent: bool = False,
     no_skills: bool = False,
+    yes: bool = False,
+    dry_run: bool = False,
 ) -> None:
     """Scaffold a fresh best-practice project under ``./<name>/``.
 
-    Renders every template in :data:`_SKELETON` plus a generated
-    ``.pyclawd/config.py``, then (unless opted out) lands agent-readiness: an
-    ``AGENTS.md`` + ``CLAUDE.md`` guide and the bundled skills under
-    ``<name>/.claude/skills/``. Refuses to write into an existing, non-empty
-    target unless ``force``.
+    Always lands the ``src/`` skeleton (:data:`_SKELETON`) + a generated
+    ``.pyclawd/config.py``; the optional pieces (docs runner, build step, agent
+    guide, skills) are chosen interactively at a TTY, or from flags / defaults for
+    an agent. Refuses to write into an existing, non-empty target unless ``force``.
     """
     dest = Path.cwd() / name
     if dest.exists() and any(dest.iterdir()) and not force:
@@ -439,6 +480,30 @@ def _new_project(
             err=True,
         )
         raise typer.Exit(1)
+
+    interactive = _interactive(yes)
+    docs_v = _ask_bool(docs, "Include a docs/ runner + DocsConfig?", False, interactive)
+    compile_v = _ask_bool(compile_step, "Include a build/compile step?", False, interactive)
+    agent_v = _ask_bool(
+        False if no_agent else None, "Write AGENTS.md + CLAUDE.md?", True, interactive
+    )
+    skills_v = _ask_bool(
+        False if no_skills else None, "Install pyclawd skills (user scope)?", True, interactive
+    )
+
+    _print_plan(
+        dest,
+        [
+            ("src/ layout + pyproject + tests + CI", True),
+            ("docs/ runner + DocsConfig", docs_v),
+            ("build/compile step", compile_v),
+            ("AGENTS.md + CLAUDE.md", agent_v),
+            ("pyclawd skills → ~/.claude/skills", skills_v),
+        ],
+        dry_run=dry_run,
+    )
+    if dry_run:
+        return
 
     pkg_v = pkg or _default_pkg(name)
     ctx = {
@@ -463,18 +528,16 @@ def _new_project(
         pkg=pkg_v,
         conda_env=None,
         tests_dir="tests/",
-        docs=docs,
-        compile_step=False,
+        docs=docs_v,
+        compile_step=compile_v,
     )
     _write(dest / ".pyclawd" / "config.py", config)
 
-    if docs:
+    if docs_v:
         _install_docs(dest, ctx)
-
-    # Agent-readiness: make the fresh project Claude-Code-ready out of the box.
-    if not no_agent:
+    if agent_v:
         _write_agent_guide(dest, ctx)
-    if not no_skills:
+    if skills_v:
         _install_project_skills()
 
     typer.secho(f"✓ scaffolded {name} at {dest}", fg="green")
@@ -483,7 +546,7 @@ def _new_project(
     typer.echo("  git init && git add -A && git commit -m 'Initial commit'")
     typer.echo("  pip install -e . --group dev")
     typer.echo("  pyclawd check       # format-check -> lint -> typecheck -> test")
-    if docs:
+    if docs_v:
         typer.echo("  pip install -e ./docs && pyclawd docs build   # build the docs/")
 
 
@@ -510,13 +573,13 @@ def new(
     ),
     tests_dir: str = typer.Option(None, "--tests-dir", help="ADOPT: tests directory."),
     docs: bool = typer.Option(
-        None, "--docs/--no-docs", help="Scaffold a working docs/ runner + DocsConfig."
+        None, "--docs/--no-docs", help="Include a docs/ runner + DocsConfig."
     ),
     compile_step: bool = typer.Option(
-        None, "--compile/--no-compile", help="ADOPT: does the project have a build step?"
+        None, "--compile/--no-compile", help="Include a build/compile step."
     ),
     yes: bool = typer.Option(
-        False, "--yes", "-y", help="ADOPT: non-interactive — accept inferred defaults."
+        False, "--yes", "-y", help="Non-interactive — accept inferred defaults (no prompts)."
     ),
     no_agent: bool = typer.Option(
         False, "--no-agent", help="Do not write AGENTS.md / CLAUDE.md agent guide."
@@ -524,8 +587,16 @@ def new(
     no_skills: bool = typer.Option(
         False, "--no-skills", help="Do not install the bundled pyclawd skills."
     ),
+    dry_run: bool = typer.Option(
+        False, "--dry-run", help="Print the component plan and exit without writing anything."
+    ),
 ) -> None:
-    """Scaffold a new project (``pyclawd new <name>``) or adopt the current repo."""
+    """Scaffold a new project (``pyclawd new <name>``) or adopt the current repo.
+
+    Interactive at a terminal (pick which components to include); flag- and
+    default-driven for agents/CI (no TTY → no prompts, never hangs). ``--dry-run``
+    previews the plan; ``--yes`` accepts defaults non-interactively.
+    """
     if name is None:
         _adopt(
             force=force,
@@ -538,6 +609,7 @@ def new(
             yes=yes,
             no_agent=no_agent,
             no_skills=no_skills,
+            dry_run=dry_run,
         )
         return
 
@@ -547,9 +619,12 @@ def new(
         pkg=pkg,
         author=author or _git_config("user.name", "Your Name"),
         email=email or _git_config("user.email", "you@example.com"),
-        docs=bool(docs),
+        docs=docs,
+        compile_step=compile_step,
         no_agent=no_agent,
         no_skills=no_skills,
+        yes=yes,
+        dry_run=dry_run,
     )
 
 

@@ -21,13 +21,42 @@ from pyclawd.commands import skills as skills_mod
 from pyclawd.commands.new import _adopt, _new_project, _render, _render_config
 
 
-@pytest.fixture
+@pytest.fixture(autouse=True)
 def user_skills(tmp_path, monkeypatch):
-    """Redirect the user-scope skills dir to a tmp dir (never touch real ~/.claude)."""
+    """Redirect the user-scope skills dir to a tmp dir (no test touches real ~/.claude)."""
     dest = tmp_path / "home" / ".claude" / "skills"
     monkeypatch.setattr(skills_mod, "user_skills_dir", lambda: dest)
     monkeypatch.setattr(new_mod, "user_skills_dir", lambda: dest)
     return dest
+
+
+def test_interactive_requires_a_tty_and_no_yes(monkeypatch):
+    # A human at a terminal (TTY, no --yes) gets prompts...
+    monkeypatch.setattr(new_mod.sys.stdin, "isatty", lambda: True)
+    assert new_mod._interactive(yes=False) is True
+    assert new_mod._interactive(yes=True) is False  # --yes always wins
+    # ...an agent / CI / pipe (no TTY) never prompts → uses flags + defaults.
+    monkeypatch.setattr(new_mod.sys.stdin, "isatty", lambda: False)
+    assert new_mod._interactive(yes=False) is False
+
+
+def test_new_project_dry_run_writes_nothing(tmp_path: Path, monkeypatch, capsys) -> None:
+    monkeypatch.chdir(tmp_path)
+    _new_project(
+        name="previewed",
+        force=False,
+        pkg=None,
+        author="A",
+        email="a@b.c",
+        docs=True,
+        compile_step=True,
+        dry_run=True,
+    )
+    assert not (tmp_path / "previewed").exists()  # nothing written
+    out = capsys.readouterr().out
+    assert "dry run" in out
+    assert "docs/ runner" in out  # the plan lists the chosen components
+    assert "build/compile step" in out
 
 
 def test_render_substitutes_known_keys_and_leaves_others() -> None:
