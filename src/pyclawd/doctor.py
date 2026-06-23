@@ -22,7 +22,8 @@ import sys
 from rich.console import Console
 from rich.table import Table
 
-from .project import FAIL, OK, WARN, Check, Project, load_project
+from .discovery import ConfigError, load_project
+from .project import FAIL, OK, WARN, Check, Project
 
 _MARK = {OK: "[green]✓[/green]", WARN: "[yellow]![/yellow]", FAIL: "[red]✗[/red]"}
 
@@ -92,13 +93,76 @@ def _check_repo(project: Project) -> list[Check]:
     return checks
 
 
+def _check_interpreter(project: Project) -> Check:
+    """Report the command ``pyclawd python`` / ``test`` will actually launch.
+
+    Surfaces the resolved :func:`pyclawd.run.python_prefix` (``$PYCLAWD_PYTHON`` →
+    ``Project.python_cmd`` → ``sys.executable``) so a misconfigured interpreter is
+    visible here rather than only at run time. WARNs if a configured launcher's
+    binary is not on PATH.
+    """
+    from .run import PYTHON_ENV, python_prefix
+
+    prefix = python_prefix(project)
+    shown = " ".join(prefix)
+    if os.environ.get(PYTHON_ENV):
+        return Check(OK, "python exec", f"{shown}  (via ${PYTHON_ENV})")
+    if not project.python_cmd:
+        return Check(OK, "python exec", f"{shown}  (sys.executable)")
+    # A configured launcher (venv path / conda run / uv run): check the binary.
+    launcher = prefix[0] if prefix else ""
+    if launcher and (shutil.which(launcher) or os.path.exists(launcher)):
+        return Check(OK, "python exec", shown)
+    return Check(WARN, "python exec", f"{shown}  — {launcher!r} not found on PATH")
+
+
+def _check_docs(project: Project) -> list[Check]:
+    """Docs prerequisites, surfaced only when the project configures docs.
+
+    Checks the two things that bite first: that the docs *runner* binary is on
+    PATH (else every ``pyclawd docs build/run`` fails), and that ``jupyter-cache``
+    is importable in this env (``pyclawd docs failures`` reads the cache
+    in-process). Both are WARNs, not FAILs — docs are optional and the build verbs
+    self-report — but they make the prerequisites visible before the first failure.
+    """
+    if project.docs is None:
+        return []
+    checks: list[Check] = []
+
+    runner = project.docs.runner
+    binary = runner[0] if runner else ""
+    if not binary:
+        checks.append(Check(WARN, "docs runner", "no runner configured (project.docs.runner)"))
+    elif shutil.which(binary):
+        checks.append(Check(OK, "docs runner", " ".join(runner)))
+    else:
+        checks.append(
+            Check(WARN, "docs runner", f"{binary!r} not on PATH — `pyclawd docs build` will fail")
+        )
+
+    try:
+        importlib.import_module("jupyter_cache")
+        checks.append(Check(OK, "jupyter-cache", "available (enables `pyclawd docs failures`)"))
+    except Exception:  # noqa: BLE001 - absence is a caveat, not a failure
+        checks.append(
+            Check(
+                WARN,
+                "jupyter-cache",
+                "not importable — `pyclawd docs failures` needs it (pip install jupyter-cache)",
+            )
+        )
+    return checks
+
+
 def _check_git(root) -> Check:
     if root is None:
         return Check(WARN, "git branch", "n/a")
     try:
         out = subprocess.run(
             ["git", "-C", str(root), "rev-parse", "--abbrev-ref", "HEAD"],
-            capture_output=True, text=True, timeout=5,
+            capture_output=True,
+            text=True,
+            timeout=5,
         )
         if out.returncode == 0:
             return Check(OK, "git branch", out.stdout.strip())
@@ -114,7 +178,7 @@ def collect(project: Project | None = None) -> list[Check]:
     ----------
     project : Project or None, optional
         The loaded project. If ``None``, it is discovered via
-        :func:`~pyclawd.project.load_project`; when no project is found the generic
+        :func:`~pyclawd.discovery.load_project`; when no project is found the generic
         checks still run and a WARN is added pointing at the missing config.
     """
     if project is None:
@@ -124,19 +188,31 @@ def collect(project: Project | None = None) -> list[Check]:
     if project is None:
         return [
             _check_python(),
-            Check(WARN, "project config", "no .pyclawd/config.py found — run pyclawd inside a project"),
+            Check(
+                WARN, "project config", "no .pyclawd/config.py found — run pyclawd inside a project"
+            ),
             _check_git(None),
         ]
 
-    checks: list[Check] = [_check_python(), _check_conda_env(project.conda_env)]
+    checks: list[Check] = [
+        _check_python(),
+        _check_conda_env(project.conda_env),
+        _check_interpreter(project),
+    ]
 
-    # Project import + compiled-extension status come from the config hook.
+    # Project import + compiled-extension status come from the config hook. A
+    # raising hook must not crash the whole report — turn it into a single FAIL row.
     if project.extra_doctor_checks is not None:
-        checks += list(project.extra_doctor_checks())
+        hook_name = getattr(project.extra_doctor_checks, "__name__", "extra_doctor_checks")
+        try:
+            checks += list(project.extra_doctor_checks())
+        except Exception as exc:  # noqa: BLE001 - a bad hook is a check failure, not a crash
+            checks.append(Check(FAIL, hook_name, f"raised {type(exc).__name__}: {exc}"))
 
     checks += [_check_import(d, required=True) for d in project.doctor.core_deps]
     checks += [_check_import(d, required=False) for d in project.doctor.dev_deps]
     checks += [_check_binary(name, hint) for name, hint in project.doctor.binaries]
+    checks += _check_docs(project)
     checks += _check_repo(project)
     checks.append(_check_git(project.root))
     return checks
@@ -145,13 +221,18 @@ def collect(project: Project | None = None) -> list[Check]:
 def run_doctor() -> int:
     """Render the report and return a process exit code (0 ok, 1 if any FAIL)."""
     console = Console()
-    project = load_project()
+    try:
+        project = load_project()
+    except ConfigError as exc:
+        console.print(f"[red]✗ {exc}[/red]")
+        return 2
     checks = collect(project)
 
     name = project.name if project is not None else "unknown project"
     table = Table(
         title=f"pyclawd doctor — {name} dev environment",
-        title_style="bold", show_lines=False,
+        title_style="bold",
+        show_lines=False,
     )
     table.add_column("", justify="center", width=3)
     table.add_column("check", style="bold")

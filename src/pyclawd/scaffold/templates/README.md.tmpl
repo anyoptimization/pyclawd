@@ -1,0 +1,27 @@
+# {{name}}
+
+{{description}}
+
+## Install (development)
+
+```bash
+pip install -e .            # editable install
+pip install --group dev     # dev tooling (pytest, ruff, mypy)
+```
+
+## Development
+
+This project is driven by [pyclawd](https://github.com/{{owner}}/pyclawd) — a
+config-driven dev-task runner. The project knobs live in `.pyclawd/config.py`.
+
+```bash
+pyclawd test        # run the test suite
+pyclawd lint        # ruff check
+pyclawd format      # ruff format
+pyclawd typecheck   # mypy
+pyclawd check       # the full gate: format-check -> lint -> typecheck -> test
+```
+
+## License
+
+Apache-2.0 — see [LICENSE](LICENSE).

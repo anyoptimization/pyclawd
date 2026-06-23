@@ -1,0 +1,16 @@
+"""Smoke test — the package imports and exposes a version string."""
+
+from __future__ import annotations
+
+import {{pkg}}
+
+
+def test_package_imports() -> None:
+    """The top-level package imports cleanly."""
+    assert {{pkg}} is not None
+
+
+def test_version_is_a_nonempty_string() -> None:
+    """``__version__`` is exposed and is a non-empty string."""
+    assert isinstance({{pkg}}.__version__, str)
+    assert {{pkg}}.__version__

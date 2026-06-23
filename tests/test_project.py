@@ -1,14 +1,14 @@
 """Unit tests for the generic pyclawd core (config model + loader).
 
-These exercise only the project-agnostic toolkit in ``pyclawd`` — never pymoo — so
-they double as the reference for adopters.
+These exercise only the project-agnostic toolkit in ``pyclawd`` — no adopting
+project required — so they double as the reference for adopters.
 
 Run them (from the repo root) with::
 
-    pyclawd python -m pytest .claude/tests -c .claude/tests/pytest.ini
+    python -m pytest tests -c tests/pytest.ini
 
-The dedicated ``-c`` config keeps these tests from inheriting pymoo's root
-``pytest.ini`` (``--strict-markers`` + project markers).
+The dedicated ``-c`` config keeps these tests from inheriting any adopting
+project's root ``pytest.ini`` (``--strict-markers`` + project markers).
 """
 
 from __future__ import annotations
@@ -23,11 +23,11 @@ from pyclawd import (
     DocsConfig,
     DoctorConfig,
     Project,
+    QualityConfig,
     TestConfig,
     find_config_file,
     load_project,
 )
-
 
 # --------------------------------------------------------------------------- #
 # Helpers
@@ -128,6 +128,43 @@ def test_project_and_nested_configs_construct():
     assert isinstance(proj.doctor, DoctorConfig)
     assert proj.root is None
     assert proj.extra_doctor_checks is None
+
+
+def test_quality_defaults_to_none():
+    # Quality is optional — a project without it leaves the field None so the
+    # quality commands self-report rather than crash.
+    assert make_project().quality is None
+
+
+def test_quality_config_defaults_and_check_sequence():
+    q = QualityConfig()
+    # Every command argv defaults to empty (= "unconfigured" → exit 2 at runtime).
+    assert q.lint_cmd == []
+    assert q.lint_fix_cmd == []
+    assert q.format_cmd == []
+    assert q.format_check_cmd == []
+    assert q.typecheck_cmd == []
+    # The aggregate gate runs format-check → lint → typecheck → test, in order.
+    assert q.check_sequence == ["format-check", "lint", "typecheck", "test"]
+
+
+def test_quality_config_independent_default_lists():
+    # default_factory must not share the same list instance between instances.
+    a, b = QualityConfig(), QualityConfig()
+    assert a.check_sequence is not b.check_sequence
+
+
+def test_quality_config_is_frozen():
+    q = QualityConfig(lint_cmd=["ruff", "check"])
+    with pytest.raises(dataclasses.FrozenInstanceError):
+        q.lint_cmd = []  # type: ignore[misc]
+
+
+def test_project_accepts_quality_config():
+    q = QualityConfig(lint_cmd=["ruff", "check"], typecheck_cmd=["mypy", "src"])
+    proj = dataclasses.replace(make_project(), quality=q)
+    assert proj.quality is q
+    assert proj.quality.typecheck_cmd == ["mypy", "src"]
 
 
 def test_project_is_frozen():

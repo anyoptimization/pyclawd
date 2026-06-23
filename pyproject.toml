@@ -11,20 +11,66 @@ readme = "README.md"
 license = "Apache-2.0"
 requires-python = ">=3.10"
 keywords = ["developer-tools", "task-runner", "cli", "testing", "documentation"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: Apache Software License",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Software Development :: Libraries",
+    "Topic :: Software Development :: Quality Assurance",
+]
 dependencies = [
     "typer>=0.12",
     "rich>=13",
 ]
 
 [project.urls]
-Homepage = "https://github.com/blankjul/pyclawd"
-Source = "https://github.com/blankjul/pyclawd"
+Homepage = "https://github.com/anyoptimization/pyclawd"
+Source = "https://github.com/anyoptimization/pyclawd"
+Issues = "https://github.com/anyoptimization/pyclawd/issues"
 
 [project.scripts]
 pyclawd = "pyclawd.cli:app"
 
+# Dev tooling lives in a PEP 735 dependency group — matching what `pyclawd new`
+# scaffolds (the scaffold teaches `[dependency-groups]`, so the dogfood matches).
+# A thin `[project.optional-dependencies] dev` mirrors it so the simple
+# `pip install -e ".[dev]"` keeps working for tools that don't yet read groups.
+[dependency-groups]
+dev = ["pytest>=8", "pytest-xdist>=3", "ruff>=0.6", "mypy>=1.10"]
+
 [project.optional-dependencies]
-dev = ["pytest>=8", "pyflakes"]
+dev = ["pytest>=8", "pytest-xdist>=3", "ruff>=0.6", "mypy>=1.10"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/pyclawd"]
+
+# --------------------------------------------------------------------------- #
+# Code-quality toolchain (dogfooded via `pyclawd lint/format/typecheck/check`).
+# --------------------------------------------------------------------------- #
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+# A sensible, modern default: pyflakes (F), pycodestyle (E), isort (I),
+# bugbear (B), pyupgrade (UP), flake8-simplify (SIM), comprehensions (C4).
+select = ["E", "F", "I", "B", "UP", "SIM", "C4"]
+# `compile` and `format` shadow builtins by design — they are intentional
+# command names (`pyclawd compile`, `pyclawd format`).
+[tool.ruff.lint.per-file-ignores]
+"src/pyclawd/commands/build.py" = ["A001"]
+"src/pyclawd/commands/quality.py" = ["A001"]
+
+[tool.mypy]
+# Non-strict to start: wire up type-checking without drowning in noise.
+python_version = "3.10"
+files = ["src"]
+ignore_missing_imports = true
+warn_unused_configs = true
+check_untyped_defs = true

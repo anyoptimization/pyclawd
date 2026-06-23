@@ -4,8 +4,8 @@ pyclawd provides run/test/build/docs/doctor workflows driven by a per-project
 configuration file (``.pyclawd/config.py``). The public API exposes the
 configuration model and loader so adopting projects can describe themselves:
 
-- :class:`Project` and the nested :class:`DocsConfig`, :class:`TestConfig`, and
-  :class:`DoctorConfig` config groups.
+- :class:`Project` and the nested :class:`DocsConfig`, :class:`TestConfig`,
+  :class:`DoctorConfig`, and :class:`QualityConfig` config groups.
 - :func:`load_project` / :func:`find_config_file` to discover and load a project.
 - :class:`Check` and the :data:`OK` / :data:`WARN` / :data:`FAIL` status
   constants used by the ``doctor`` health-check hook.
@@ -16,6 +16,7 @@ module-level ``project = Project(...)``.
 
 from __future__ import annotations
 
+from .discovery import ConfigError, find_config_file, load_project, set_config_override
 from .project import (
     FAIL,
     OK,
@@ -24,9 +25,8 @@ from .project import (
     DocsConfig,
     DoctorConfig,
     Project,
+    QualityConfig,
     TestConfig,
-    find_config_file,
-    load_project,
 )
 
 __version__ = "0.1.0"
@@ -37,10 +37,13 @@ __all__ = [
     "DocsConfig",
     "TestConfig",
     "DoctorConfig",
+    "QualityConfig",
     "Check",
     "OK",
     "WARN",
     "FAIL",
     "load_project",
     "find_config_file",
+    "set_config_override",
+    "ConfigError",
 ]

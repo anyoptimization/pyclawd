@@ -6,11 +6,11 @@ env, test-tier markers, doctor checks, …) is captured by the :class:`Project`
 model defined here, and each adopting project supplies a concrete instance in a
 ``.pyclawd/config.py`` file at its repository root.
 
-The toolkit discovers that file by walking up from the current working
-directory (:func:`find_config_file`), imports it, and reads its module-level
-``project`` object (:func:`load_project`). Nothing in this module is specific to
-any particular project — the worked example lives in pymoo's own
-``.pyclawd/config.py``, which downstream templates copy and edit.
+The toolkit discovers that file (see :mod:`pyclawd.discovery`'s
+``find_config_file`` / ``load_project``), imports it, and reads its module-level
+``project`` object. Nothing in this module is specific to any particular
+project — an adopting project's ``.pyclawd/config.py`` provides the concrete
+instance, which downstream templates copy and edit.
 
 The model is a tree of frozen dataclasses so a loaded :class:`Project` is
 immutable and safe to share. Grouped concerns live in nested configs
@@ -24,10 +24,8 @@ project's :attr:`Project.extra_doctor_checks` hook builds :class:`Check` objects
 
 from __future__ import annotations
 
-import dataclasses
-import importlib.util
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 # --------------------------------------------------------------------------- #
@@ -70,11 +68,28 @@ class Check:
 class DocsConfig:
     """Documentation-build settings for ``pyclawd docs``.
 
+    Backend assumption
+    ------------------
+    The build verbs (``build`` / ``run`` / ``compile`` / ``render`` / ``exec`` /
+    ``clean``) are **delegated** to :attr:`runner` and impose nothing — plug in any
+    toolchain that understands those verbs. The two *introspection* views are the
+    exception: ``pyclawd docs timings`` and ``pyclawd docs failures`` read the
+    runner's execution cache **directly**, and they assume a `jupyter-cache
+    <https://jupyter-cache.readthedocs.io>`_ SQLite cache at :attr:`cache_db`
+    (tables ``nbcache`` / ``nbproject``). ``timings`` needs only stdlib ``sqlite3``;
+    ``failures`` additionally imports ``jupyter_cache`` + ``nbformat`` **in
+    pyclawd's own env** (it self-reports cleanly if they are absent). So: a
+    non-jupyter-cache runner can still ``build``/``run``, but ``timings``/``failures``
+    will show nothing / report the missing backend. ``pyclawd doctor`` surfaces this
+    when docs are configured.
+
     Parameters
     ----------
     runner : list of str
         Argv prefix that invokes the project's documentation toolchain, e.g.
         ``["uvx", "--from", "./docs", "mydocs"]``. Sub-commands are appended.
+        Heavy docs deps (sphinx/nbsphinx/jupyter-cache) live in that isolated
+        toolchain, not the project env.
     source_dir : str
         Root-relative directory holding the documentation sources
         (e.g. ``"docs/source"``).
@@ -121,13 +136,55 @@ class TestConfig:
         Root-relative test files that are their own integration suites and are
         deselected by the unit tiers (e.g. ``["tests/test_examples.py", ...]``).
     markers : dict of str to str
-        Tier name → pytest ``-m`` marker expression (see above).
+        Tier name → pytest ``-m`` marker expression (see above). A tier the
+        project does not define simply applies no ``-m`` filter (it is **not** an
+        error to omit ``fast`` or ``all``), so the tier set is fully customisable.
     """
 
     tests_dir: str
     classname_prefix: str
     integration_files: list[str]
     markers: dict[str, str]
+
+
+@dataclass(frozen=True)
+class QualityConfig:
+    """Code-quality settings for ``pyclawd lint`` / ``format`` / ``typecheck`` / ``check``.
+
+    Each command maps to an explicit argv so the toolchain is fully
+    project-driven — nothing about ruff/mypy/etc. is hardcoded in the command
+    layer. The aggregate ``pyclawd check`` gate runs the verbs named in
+    :attr:`check_sequence`, in order, fail-fast.
+
+    Parameters
+    ----------
+    lint_cmd : list of str
+        Argv that lints without mutating files (e.g. ``["ruff", "check"]``).
+    lint_fix_cmd : list of str
+        Argv that lints and applies autofixes (e.g. ``["ruff", "check", "--fix"]``).
+    format_cmd : list of str
+        Argv that rewrites files to the canonical format
+        (e.g. ``["ruff", "format"]``).
+    format_check_cmd : list of str
+        Non-mutating format check, suitable as a CI gate
+        (e.g. ``["ruff", "format", "--check"]``).
+    typecheck_cmd : list of str
+        Argv that type-checks the project (e.g. ``["mypy", "src"]``).
+    check_sequence : list of str
+        Ordered verbs the aggregate ``pyclawd check`` runs. Recognised verbs are
+        ``"format-check"``, ``"lint"``, ``"typecheck"``, and ``"test"`` (which
+        maps to the default test tier). Defaults to
+        ``["format-check", "lint", "typecheck", "test"]``.
+    """
+
+    lint_cmd: list[str] = field(default_factory=list)
+    lint_fix_cmd: list[str] = field(default_factory=list)
+    format_cmd: list[str] = field(default_factory=list)
+    format_check_cmd: list[str] = field(default_factory=list)
+    typecheck_cmd: list[str] = field(default_factory=list)
+    check_sequence: list[str] = field(
+        default_factory=lambda: ["format-check", "lint", "typecheck", "test"]
+    )
 
 
 @dataclass(frozen=True)
@@ -172,30 +229,61 @@ class Project:
     name : str
         Project name (e.g. ``"myproject"``).
     conda_env : str or None
-        Conda env pyclawd expects to run in, or ``None`` if env-agnostic.
+        Conda env pyclawd expects to run in, or ``None`` if env-agnostic. This is
+        **advisory** — it does not select the interpreter (see :attr:`python_cmd`);
+        ``pyclawd doctor`` only WARNs when the active env differs.
     root_markers : list of str
         Root-relative files that should exist at the repository root, used as a
         sanity check (e.g. ``["mypkg/__init__.py", "setup.py"]``).
-    compile_cmd : list of str
-        Args passed to the dev Python for ``pyclawd compile``
-        (e.g. ``["setup.py", "build_ext", "--inplace"]``).
-    dist_cmd : list of str
-        Args passed to the dev Python for ``pyclawd dist`` (e.g. ``["setup.py", "sdist"]``).
-    clean_targets : list of str
-        Root-relative paths removed by ``pyclawd clean``
-        (e.g. ``["build", "dist", "mypkg.egg-info"]``).
-    clean_ext_dir : str
-        Root-relative directory holding compiled artifacts
-        (e.g. ``"mypkg/_compiled"``).
-    clean_ext_globs : list of str
-        Globs removed under :attr:`clean_ext_dir` when ``pyclawd clean --ext`` runs
-        (e.g. ``["*.c", "*.cpp", "*.so", "*.html"]``).
-    docs : DocsConfig
-        Documentation-build settings.
     test : TestConfig
         Test-suite settings and tier markers.
     doctor : DoctorConfig
         Health-check settings.
+    python_cmd : list of str, optional
+        The argv prefix used to launch the project's Python — this is *how* every
+        ``pyclawd python`` / ``test`` / ``compile`` invocation runs code, so it
+        makes the interpreter fully project-defined and extensible. One field
+        spans every backend:
+
+        - ``[]`` (the default) → pyclawd's own ``sys.executable`` (install pyclawd
+          into the env you develop in);
+        - explicit venv → ``["/path/.venv/bin/python"]``;
+        - conda (one pyclawd driving many envs) → ``["conda", "run", "-n", "env", "python"]``;
+        - uv → ``["uv", "run", "python"]``.
+
+        The ``PYCLAWD_PYTHON`` environment variable overrides this at runtime
+        (``shlex``-split, so it may be a full command) for one-off interpreter
+        swaps without editing config.
+    compile_cmd : list of str, optional
+        Args passed to the dev Python for ``pyclawd compile``
+        (e.g. ``["setup.py", "build_ext", "--inplace"]``). Empty (the default)
+        means the project has no compile step — ``pyclawd compile`` reports that
+        and exits cleanly.
+    dist_cmd : list of str, optional
+        Args passed to the dev Python for ``pyclawd dist`` (e.g.
+        ``["setup.py", "sdist"]``). Empty (the default) means no dist step.
+    clean_targets : list of str, optional
+        Root-relative paths removed by ``pyclawd clean``
+        (e.g. ``["build", "dist", "mypkg.egg-info"]``). Defaults to empty.
+    clean_ext_dir : str, optional
+        Root-relative directory holding compiled artifacts
+        (e.g. ``"mypkg/_compiled"``). Empty (the default) disables ``--ext``.
+    clean_ext_globs : list of str, optional
+        Globs removed under :attr:`clean_ext_dir` when ``pyclawd clean --ext`` runs
+        (e.g. ``["*.c", "*.cpp", "*.so", "*.html"]``). Defaults to empty.
+    src_dir : str, optional
+        Default directory ``pyclawd ls`` lists (the code/source root), relative to
+        the repo root. Defaults to ``src``.
+    docs : DocsConfig or None, optional
+        Documentation-build settings, or ``None`` (the default) when the project
+        has no docs. When ``None`` the ``pyclawd docs`` command group is not even
+        registered.
+    quality : QualityConfig or None, optional
+        Code-quality settings for ``pyclawd lint`` / ``format`` / ``typecheck`` /
+        ``check``, or ``None`` (the default) when the project configures no
+        quality toolchain. When ``None`` (or a given command's argv is empty) the
+        affected command self-reports that quality is unconfigured and exits 2
+        rather than crashing.
     extra_doctor_checks : callable or None, optional
         Optional hook returning a list of extra :class:`Check` objects, appended
         to the doctor report (e.g. project import + compiled-extension status).
@@ -209,16 +297,22 @@ class Project:
     conda_env: str | None
     root_markers: list[str]
 
-    compile_cmd: list[str]
-    dist_cmd: list[str]
-
-    clean_targets: list[str]
-    clean_ext_dir: str
-    clean_ext_globs: list[str]
-
-    docs: DocsConfig
     test: TestConfig
     doctor: DoctorConfig
+
+    python_cmd: list[str] = field(default_factory=list)
+
+    compile_cmd: list[str] = field(default_factory=list)
+    dist_cmd: list[str] = field(default_factory=list)
+
+    clean_targets: list[str] = field(default_factory=list)
+    clean_ext_dir: str = ""
+    clean_ext_globs: list[str] = field(default_factory=list)
+
+    src_dir: str = "src"
+
+    docs: DocsConfig | None = None
+    quality: QualityConfig | None = None
 
     extra_doctor_checks: Callable[..., list[Check]] | None = None
     root: Path | None = None
@@ -245,102 +339,3 @@ class Project:
         if self.root is None:
             raise ValueError("Project.root is not set — load via load_project().")
         return self.root.joinpath(*rel)
-
-
-# --------------------------------------------------------------------------- #
-# Discovery + loading.
-# --------------------------------------------------------------------------- #
-
-#: Directory name (under the repo root) that holds the project config.
-CONFIG_DIR = ".pyclawd"
-#: Config module file name within :data:`CONFIG_DIR`.
-CONFIG_FILE = "config.py"
-
-# Private module name the config file is imported under.
-_LOADED_MODULE = "pyclawd._loaded_config"
-
-# Cache of loaded projects, keyed by the resolved config-file path.
-_CACHE: dict[Path, Project] = {}
-
-
-def find_config_file(start: str | Path | None = None) -> Path | None:
-    """Walk up from *start* looking for a ``.pyclawd/config.py``.
-
-    Parameters
-    ----------
-    start : str or pathlib.Path or None, optional
-        Directory to start searching from. Defaults to the current working
-        directory.
-
-    Returns
-    -------
-    pathlib.Path or None
-        The resolved path to the discovered ``.pyclawd/config.py``, or ``None`` if
-        none is found walking up to the filesystem root.
-    """
-    here = Path(start or Path.cwd()).resolve()
-    for cand in (here, *here.parents):
-        config = cand / CONFIG_DIR / CONFIG_FILE
-        if config.is_file():
-            return config
-    return None
-
-
-def load_project(start: str | Path | None = None) -> Project | None:
-    """Discover, import, and return the project's :class:`Project` config.
-
-    Walks up from *start* to find ``.pyclawd/config.py`` (:func:`find_config_file`),
-    imports it, reads its module-level ``project`` object, validates it, and sets
-    :attr:`Project.root` to the directory containing ``.pyclawd/``. Results are cached
-    by config-file path, so repeated calls do not re-import.
-
-    Parameters
-    ----------
-    start : str or pathlib.Path or None, optional
-        Directory to start searching from. Defaults to the current working
-        directory.
-
-    Returns
-    -------
-    Project or None
-        The loaded project with :attr:`Project.root` populated, or ``None`` if no
-        ``.pyclawd/config.py`` is found.
-
-    Raises
-    ------
-    ImportError
-        If the config file cannot be imported.
-    TypeError
-        If the config module has no ``project`` attribute or it is not a
-        :class:`Project` instance.
-    """
-    config_file = find_config_file(start)
-    if config_file is None:
-        return None
-
-    if config_file in _CACHE:
-        return _CACHE[config_file]
-
-    spec = importlib.util.spec_from_file_location(_LOADED_MODULE, config_file)
-    if spec is None or spec.loader is None:
-        raise ImportError(f"could not load config spec from {config_file}")
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-
-    project = getattr(module, "project", None)
-    if project is None:
-        raise TypeError(
-            f"{config_file} defines no module-level `project` object "
-            f"(expected a pyclawd.Project instance)."
-        )
-    if not isinstance(project, Project):
-        raise TypeError(
-            f"`project` in {config_file} must be a pyclawd.Project instance, "
-            f"got {type(project).__name__}."
-        )
-
-    # The repo root is the directory containing the `.pyclawd/` dir.
-    root = config_file.parent.parent
-    project = dataclasses.replace(project, root=root)
-    _CACHE[config_file] = project
-    return project

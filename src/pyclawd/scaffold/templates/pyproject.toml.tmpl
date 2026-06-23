@@ -1,0 +1,59 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "{{name}}"
+description = "{{description}}"
+authors = [{ name = "{{author}}", email = "{{email}}" }]
+readme = "README.md"
+license = "Apache-2.0"
+requires-python = ">=3.10"
+keywords = []
+dynamic = ["version"]
+dependencies = []
+
+[project.urls]
+Homepage = "https://github.com/{{owner}}/{{name}}"
+Source = "https://github.com/{{owner}}/{{name}}"
+
+# Single source of truth for the version: src/{{pkg}}/__init__.py::__version__.
+[tool.hatch.version]
+path = "src/{{pkg}}/__init__.py"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/{{pkg}}"]
+
+# PEP 735 dependency group — dev tooling, NOT a shipped extra.
+[dependency-groups]
+dev = [
+    "pytest>=8",
+    "pytest-xdist>=3",  # `pyclawd test fast` runs under `-n auto`
+    "ruff>=0.6",
+    "mypy>=1.10",
+]
+
+# --------------------------------------------------------------------------- #
+# Code-quality toolchain (run via `pyclawd lint/format/typecheck/check`).
+# --------------------------------------------------------------------------- #
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+# pyflakes (F), pycodestyle (E), isort (I), bugbear (B), pyupgrade (UP),
+# flake8-simplify (SIM), comprehensions (C4).
+select = ["E", "F", "I", "B", "UP", "SIM", "C4"]
+
+[tool.mypy]
+python_version = "3.10"
+files = ["src"]
+ignore_missing_imports = true
+warn_unused_configs = true
+check_untyped_defs = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"

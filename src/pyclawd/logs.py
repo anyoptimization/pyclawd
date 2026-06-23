@@ -21,21 +21,38 @@ sub-directory per category (``docs``, ``tests``, …).
 
 from __future__ import annotations
 
+import os
 import secrets
 import subprocess
 import sys
+import tempfile
 import time
 from pathlib import Path
 
 import typer
 
-from .run import _env
+from .run import repo_env
+
+
+def _default_log_root() -> Path:
+    """Where run logs live: ``$PYCLAWD_LOG_ROOT`` if set, else ``<tmpdir>/pyclawd/logs``.
+
+    Uses :func:`tempfile.gettempdir` rather than a hardcoded ``/tmp`` so it is
+    portable (honours ``TMPDIR``, works off Linux), and is overridable for tests
+    or unusual setups via the ``PYCLAWD_LOG_ROOT`` environment variable.
+    """
+    override = os.environ.get("PYCLAWD_LOG_ROOT")
+    if override:
+        return Path(override)
+    return Path(tempfile.gettempdir()) / "pyclawd" / "logs"
+
 
 #: Root for every pyclawd run log; each pipeline gets a ``LOG_ROOT/<category>`` dir.
-LOG_ROOT = Path("/tmp/pyclawd/logs")
+LOG_ROOT = _default_log_root()
 
 
 # ---- run ids & log paths ----------------------------------------------------
+
 
 def run_id() -> str:
     """Return a unique run id: a timestamp plus 2 random bytes of hex.
@@ -85,6 +102,7 @@ def new_run(category: str) -> tuple[str, Path]:
 
 
 # ---- banner helpers (docs style) --------------------------------------------
+
 
 def run_start(label: str, category: str) -> tuple[str, Path, float]:
     """Begin a logged run: write a header to the log and print the start banner.
@@ -146,6 +164,7 @@ def run_finish(rid: str, log: Path, code: int, t0: float) -> None:
 
 # ---- subprocess runners -----------------------------------------------------
 
+
 def _open_log(log: Path, cmd: list[str], mode: str, header: str):
     """Open *log* (creating parents), write the *header* + ``$ cmd`` line, return the handle.
 
@@ -153,14 +172,13 @@ def _open_log(log: Path, cmd: list[str], mode: str, header: str):
     visually separate when appending another command to an existing log).
     """
     log.parent.mkdir(parents=True, exist_ok=True)
-    fh = open(log, mode)
+    fh = open(log, mode)  # noqa: SIM115 - caller owns/closes the returned handle
     fh.write(header + "$ " + " ".join(map(str, cmd)) + "\n")
     fh.flush()
     return fh
 
 
-def tee(cmd: list[str], log: Path, root: Path,
-        env: dict[str, str] | None = None) -> int:
+def tee(cmd: list[str], log: Path, root: Path, env: dict[str, str] | None = None) -> int:
     """Run *cmd*, streaming combined stdout+stderr to **both** console and *log*.
 
     Parameters
@@ -173,7 +191,7 @@ def tee(cmd: list[str], log: Path, root: Path,
         Working directory for the subprocess.
     env : dict of str to str, optional
         Environment for the subprocess. Defaults to the repo-aware env from
-        :func:`pyclawd.run._env` (repo root on ``PYTHONPATH``).
+        :func:`pyclawd.run.repo_env` (repo root on ``PYTHONPATH``).
 
     Returns
     -------
@@ -182,8 +200,13 @@ def tee(cmd: list[str], log: Path, root: Path,
     """
     with _open_log(log, cmd, "w", "") as lf:
         proc = subprocess.Popen(
-            cmd, cwd=str(root), env=env or _env(root),
-            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1,
+            cmd,
+            cwd=str(root),
+            env=env or repo_env(root),
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            bufsize=1,
         )
         assert proc.stdout is not None
         for line in proc.stdout:
@@ -193,8 +216,7 @@ def tee(cmd: list[str], log: Path, root: Path,
     return proc.returncode
 
 
-def run_logged(cmd: list[str], log: Path, root: Path,
-               env: dict[str, str] | None = None) -> int:
+def run_logged(cmd: list[str], log: Path, root: Path, env: dict[str, str] | None = None) -> int:
     """Run *cmd* **quietly**, appending stdout+stderr to *log* (nothing streams).
 
     Tail the log for progress. Used by the docs runner, whose start/finish banners
@@ -210,7 +232,7 @@ def run_logged(cmd: list[str], log: Path, root: Path,
         Working directory for the subprocess.
     env : dict of str to str, optional
         Environment for the subprocess. Defaults to the repo-aware env from
-        :func:`pyclawd.run._env`.
+        :func:`pyclawd.run.repo_env`.
 
     Returns
     -------
@@ -219,6 +241,9 @@ def run_logged(cmd: list[str], log: Path, root: Path,
     """
     with _open_log(log, cmd, "a", "\n") as fh:
         return subprocess.call(
-            cmd, cwd=str(root), env=env or _env(root),
-            stdout=fh, stderr=subprocess.STDOUT,
+            cmd,
+            cwd=str(root),
+            env=env or repo_env(root),
+            stdout=fh,
+            stderr=subprocess.STDOUT,
         )

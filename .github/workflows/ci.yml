@@ -1,0 +1,27 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# pyclawd dogfoods itself: install it + its dev deps, then run the exact same
+# `pyclawd check` (format-check -> lint -> typecheck -> test) a developer runs
+# locally — across the supported Python matrix. A green local `pyclawd check`
+# therefore predicts a green CI.
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.11", "3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - run: python -m pip install --upgrade pip
+      - run: python -m pip install -e ".[dev]"
+      - name: pyclawd check (dogfood)
+        run: pyclawd check
