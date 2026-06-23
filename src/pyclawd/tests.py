@@ -194,8 +194,9 @@ def _is_integration(nodeid: str, integration_files: list[str]) -> bool:
 def print_failures(project: Project) -> int:
     """Print the fix-list: pytest's lastfailed cache, unit failures first.
 
-    The `examples`/`docs` integration suites are deselected by the unit tiers, so
-    their stale cache entries are listed separately (they don't block `pyclawd test fix`)."""
+    A project's integration suites (``TestConfig.integration_files``) are deselected by
+    the unit tiers, so their stale cache entries are listed separately (they don't block
+    `pyclawd test fix`)."""
     root = repo_root_or_exit()
     lf = root / ".pytest_cache" / "v" / "cache" / "lastfailed"
     if not lf.exists():
@@ -222,8 +223,8 @@ def print_failures(project: Project) -> int:
 
     if integ:
         print(
-            f"\nℹ️  {len(integ)} stale entr(ies) from deselected examples/docs suites "
-            f"(run `pyclawd test examples` / `pyclawd test docs` to refresh those)."
+            f"\nℹ️  {len(integ)} stale entr(ies) from deselected integration suites "
+            f"(re-run the tier/category that owns them — see TestConfig.markers — to refresh)."
         )
     return 1 if unit else 0
 

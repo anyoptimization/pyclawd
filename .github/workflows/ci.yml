@@ -25,3 +25,21 @@ jobs:
       - run: python -m pip install -e ".[dev]"
       - name: pyclawd check (dogfood)
         run: pyclawd check
+
+  # Build the docs the same way a developer does — dogfooding the docs pipeline so
+  # a broken runner / failing notebook is caught in CI. Needs the isolated docs env
+  # (./docs) and the pandoc system binary that nbsphinx shells out to.
+  docs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: sudo apt-get update && sudo apt-get install -y pandoc
+      - run: python -m pip install --upgrade pip
+      - run: python -m pip install -e ".[dev]" -e ./docs
+      - name: Build pyclawd's own docs (dogfood)
+        run: pyclawd docs build
+      - name: Docs-build integration test
+        run: python -m pytest tests/test_docs_integration.py -c tests/pytest.ini -v

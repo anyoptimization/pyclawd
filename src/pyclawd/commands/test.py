@@ -37,9 +37,10 @@ def test(ctx: typer.Context) -> None:
       pyclawd test timings [--top N]   slowest tests from the last run
       pyclawd test fix            debug primitive: rerun --lf -x, stream the next failure
 
-    Legacy/passthrough:
-      pyclawd test                default suite (not examples/docs/long)
-      pyclawd test examples|docs  that category
+    Category / passthrough:
+      pyclawd test                the default tier
+      pyclawd test <category>     any tier defined in TestConfig.markers (e.g. a
+                                  project's "examples"/"docs" integration suites)
       pyclawd test -k name   ·   pyclawd test path::name -x
     """
     args = list(ctx.args)
@@ -51,8 +52,10 @@ def test(ctx: typer.Context) -> None:
     project = run.load_project_or_exit()
     tier_markers = project.test.markers
 
+    # A leading arg is a category iff the project actually defines that marker tier —
+    # so recognised categories are config-driven, not a hardcoded examples/docs set.
     category = "default"
-    if verb in {"default", "examples", "docs"}:
+    if verb in tier_markers:
         category = args.pop(0)
 
     markers = tier_markers.get(category, "")

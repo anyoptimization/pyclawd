@@ -109,3 +109,47 @@ def test_skills_list_runs():
     result = runner.invoke(app, ["skills", "list"])
     assert result.exit_code == 0
     assert "pyclawd-doctor" in result.stdout
+
+
+def _config_with_markers(dir_path: Path, markers: dict) -> Path:
+    return _write_config(
+        dir_path,
+        body=(
+            "from pyclawd import Project, TestConfig, DoctorConfig\n"
+            "project = Project(\n"
+            "    name='demo', conda_env=None, root_markers=[],\n"
+            "    test=TestConfig(tests_dir='tests/', classname_prefix='tests.',\n"
+            f"                    integration_files=[], markers={markers!r}),\n"
+            "    doctor=DoctorConfig(core_deps=[], dev_deps=[], tool_files=[], binaries=[]),\n"
+            ")\n"
+        ),
+    )
+
+
+def test_test_category_is_config_driven(tmp_path, monkeypatch):
+    """`pyclawd test <key>` is a category iff the project defines that marker tier."""
+    from pyclawd import run as run_mod
+
+    captured = {}
+
+    def fake_pytest(args, default_markers=None, tests_dir=None):
+        captured["args"] = list(args)
+        captured["markers"] = default_markers
+        return 0
+
+    monkeypatch.setattr(run_mod, "pytest", fake_pytest)
+
+    # Project DEFINES "examples" → it is consumed as the category, its marker applied.
+    proj_a = tmp_path / "a"
+    _config_with_markers(proj_a, {"default": "not slow", "examples": "examples"})
+    assert runner.invoke(app, ["--config", str(proj_a), "test", "examples"]).exit_code == 0
+    assert captured["args"] == []  # "examples" consumed, not passed to pytest
+    assert captured["markers"] == "examples"
+
+    # Project does NOT define "examples" → it is passed through as a pytest arg,
+    # and the default tier marker is used (no hardcoded examples/docs assumption).
+    proj_b = tmp_path / "b"
+    _config_with_markers(proj_b, {"default": "not slow"})
+    assert runner.invoke(app, ["--config", str(proj_b), "test", "examples"]).exit_code == 0
+    assert captured["args"] == ["examples"]
+    assert captured["markers"] == "not slow"

@@ -141,12 +141,15 @@ class TestConfig:
     """Test-suite settings and tier marker expressions for ``pyclawd test``.
 
     The tier marker expressions are stored in :attr:`markers`, keyed by tier
-    name, so the test runner can look them up without hardcoding values:
+    name, so the test runner can look them up without hardcoding values. The
+    pipeline verbs use three well-known keys; any *other* key you add becomes a
+    ``pyclawd test <key>`` category (nothing is assumed — define only what you use):
 
-    - ``"default"`` — the comprehensive default gate (everything but ``long``).
-    - ``"fast"`` — the <30s smoke tier (also excludes ``slow``).
-    - ``"all"`` — everything, including ``long``.
-    - ``"examples"`` / ``"docs"`` — the per-category integration suites.
+    - ``"default"`` — the comprehensive default gate (e.g. everything but ``long``).
+    - ``"fast"`` — the <30s smoke tier (e.g. also excludes ``slow``).
+    - ``"all"`` — everything.
+    - any extra key (e.g. ``"examples"`` / ``"docs"``) — a per-category suite,
+      runnable as ``pyclawd test examples`` / ``pyclawd test docs``.
 
     Parameters
     ----------
