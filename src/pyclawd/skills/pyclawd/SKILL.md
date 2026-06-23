@@ -36,10 +36,11 @@ Four ideas explain everything:
 | Health-check the dev env | `pyclawd doctor` | `pyclawd-doctor` |
 | Run code in the project's Python | `pyclawd python <file>` · `-m <mod>` · `-c <code>` | — |
 | Tiered tests + fix-loop | `pyclawd test fast\|run\|all` · `failures` · `fix` · `timings` | `pyclawd-tests` |
+| Raw pytest passthrough (in the env) | `pyclawd pytest <args>` | `pyclawd-tests` |
 | Lint / format / typecheck | `pyclawd lint [--fix]` · `pyclawd format [--check]` · `pyclawd typecheck` | `pyclawd-quality` |
 | **The "am I done?" gate** | `pyclawd check` (format-check → lint → typecheck → test, fail-fast) | `pyclawd-quality` |
 | Build / dist / clean | `pyclawd compile` · `pyclawd dist` · `pyclawd clean [--ext]` | — |
-| Docs (if configured) | `pyclawd docs build\|run\|render\|serve\|status\|failures\|exec` | `pyclawd-docs` |
+| Docs (if configured) | `pyclawd docs build\|run\|render\|compile\|exec\|status\|timings\|failures\|clean\|serve` | `pyclawd-docs` |
 | Code map (file → description) | `pyclawd ls` · `pyclawd ls --missing` · `pyclawd ls --py` | — |
 | Scaffold / adopt | `pyclawd new <name>` · `pyclawd new` | — |
 | Manage skills | `pyclawd skills list` · `pyclawd skills install` | — |
