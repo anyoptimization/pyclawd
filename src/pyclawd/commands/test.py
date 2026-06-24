@@ -9,9 +9,7 @@ from __future__ import annotations
 import typer
 
 from .. import run, tests
-
-# Commands that forward unknown args/options straight to a subprocess.
-_PASSTHROUGH = {"allow_extra_args": True, "ignore_unknown_options": True}
+from . import _PASSTHROUGH
 
 
 def pytest(ctx: typer.Context) -> None:

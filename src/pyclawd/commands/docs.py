@@ -15,15 +15,12 @@ import shutil
 import socket
 import sqlite3
 import subprocess
-import sys
 from pathlib import Path
 
 import typer
 
 from .. import logs, run
-
-# Commands that forward unknown args/options straight to a subprocess.
-_PASSTHROUGH = {"allow_extra_args": True, "ignore_unknown_options": True}
+from . import _PASSTHROUGH
 
 docs_app = typer.Typer(
     no_args_is_help=True,
@@ -369,7 +366,16 @@ def docs_serve(
         typer.echo("❌ No built docs — run `pyclawd docs build` first.")
         raise typer.Exit(1)
 
-    cmd = [sys.executable, "-m", "http.server", str(port), "--bind", bind, "--directory", str(html)]
+    cmd = [
+        *run.python_prefix(project),
+        "-m",
+        "http.server",
+        str(port),
+        "--bind",
+        bind,
+        "--directory",
+        str(html),
+    ]
     lan = _lan_ip()
     urls = f"http://localhost:{port}" + (
         f"  ·  http://{lan}:{port}" if lan and bind == "0.0.0.0" else ""

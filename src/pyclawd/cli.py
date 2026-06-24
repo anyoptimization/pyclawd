@@ -17,6 +17,7 @@ from __future__ import annotations
 import typer
 
 from . import __version__, run
+from .commands import _PASSTHROUGH
 from .commands import build as build_cmd
 from .commands import changelog as changelog_cmd
 from .commands import config as config_cmd
@@ -30,9 +31,6 @@ from .commands import skills as skills_cmd
 from .commands import test as test_cmd
 from .discovery import ConfigError, load_project, set_config_override
 from .doctor import dump_json, run_doctor
-
-# Commands that forward unknown args/options straight to a subprocess.
-_PASSTHROUGH = {"allow_extra_args": True, "ignore_unknown_options": True}
 
 app = typer.Typer(
     no_args_is_help=True,

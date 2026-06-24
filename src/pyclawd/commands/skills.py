@@ -52,7 +52,7 @@ def user_skills_dir() -> Path:
 # --------------------------------------------------------------------------- #
 
 
-def _skills_pkg():  # type: ignore[no-untyped-def]
+def _skills_pkg():
     """Return the packaged ``pyclawd.skills`` directory as an importlib Traversable."""
     return files("pyclawd.skills")
 

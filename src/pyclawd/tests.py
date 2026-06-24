@@ -22,14 +22,13 @@ from __future__ import annotations
 import datetime
 import hashlib
 import json
-import subprocess
 import sys
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
 from .logs import category_dir, run_id, tee
 from .project import Project
-from .run import has_target, load_project_or_exit, python_prefix, repo_env, repo_root_or_exit
+from .run import has_target, load_project_or_exit, python_prefix, repo_root_or_exit, run
 
 
 def _root_hash(root: Path) -> str:
@@ -296,7 +295,7 @@ def fix(extra_args: list[str], project: Project) -> int:
         cmd += ["-m", tier_markers(project, "default")]
     cmd += extra_args
     print("$ " + " ".join(map(str, cmd)) + "\n")
-    return subprocess.call(cmd, cwd=str(root), env=repo_env(root))
+    return run(cmd, root)
 
 
 # ---- dispatch ---------------------------------------------------------------
