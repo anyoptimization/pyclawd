@@ -77,6 +77,57 @@ def test_clean_removes_targets_inside_root(tmp_path, monkeypatch):
     assert not (repo / "build").exists()
 
 
+def test_clean_ext_removes_matching_globs(tmp_path, monkeypatch, capsys):
+    repo = tmp_path / "repo"
+    (repo / "build").mkdir(parents=True)
+    (repo / "build" / "a.so").write_text("compiled")
+    (repo / "build" / "keep.txt").write_text("keep me")
+
+    project = _project(root=repo, clean_ext_dir="build", clean_ext_globs=["*.so"])
+    monkeypatch.setattr(build_cmd.run, "load_project_or_exit", lambda: project)
+
+    build_cmd.clean(ext=True)
+
+    assert not (repo / "build" / "a.so").exists(), "the *.so artifact should be removed"
+    assert (repo / "build" / "keep.txt").exists(), "non-matching files must survive"
+    out = capsys.readouterr().out
+    assert "removed:" in out
+    assert "build/a.so" in out
+
+
+def test_clean_ext_unconfigured(tmp_path, monkeypatch, capsys):
+    repo = tmp_path / "repo"
+    (repo / "build").mkdir(parents=True)
+    (repo / "build" / "a.so").write_text("compiled")
+
+    project = _project(root=repo, clean_ext_dir="", clean_ext_globs=["*.so"])
+    monkeypatch.setattr(build_cmd.run, "load_project_or_exit", lambda: project)
+
+    build_cmd.clean(ext=True)
+
+    assert (repo / "build" / "a.so").exists(), "nothing should be removed when unconfigured"
+    out = capsys.readouterr().out
+    assert "not configured" in out
+    assert "removed: nothing to clean" in out
+
+
+def test_clean_ext_refuses_outside_root(tmp_path, monkeypatch, capsys):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    victim = tmp_path / "victim"
+    victim.mkdir()
+    (victim / "lib.so").write_text("important")
+
+    project = _project(root=repo, clean_ext_dir="../victim", clean_ext_globs=["*.so"])
+    monkeypatch.setattr(build_cmd.run, "load_project_or_exit", lambda: project)
+
+    build_cmd.clean(ext=True)
+
+    assert (victim / "lib.so").exists(), "clean --ext escaped the repo root and deleted a sibling"
+    err = capsys.readouterr().err
+    assert "outside the repo root" in err
+
+
 def test_under_root_guard():
     root = Path("/tmp/repo")
     assert build_cmd._under_root(Path("/tmp/repo/build"), root)

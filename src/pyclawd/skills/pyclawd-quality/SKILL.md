@@ -1,6 +1,6 @@
 ---
 name: pyclawd-quality
-description: Run pyclawd's code-quality toolchain — lint, format, typecheck, descriptions — and the aggregate `pyclawd check` gate. Covers single-file scoping for parallelization, --fix, --skip, --log, and the DescriptionConfig knobs. Use when cleaning up code, before a commit or PR, or when asked "is this code good / ready".
+description: Run pyclawd's code-quality toolchain — lint, format, typecheck, descriptions — and the aggregate `pyclawd check` gate. Covers single-file scoping for parallelization, --changed/--json for orchestration, the quality-only-when-scoped rule, --fix, --skip, --log, and the DescriptionConfig knobs. Use when cleaning up code, before a commit or PR, or when asked "is this code good / ready".
 when_to_use: Tidying or finishing code, before committing/opening a PR, checking a single file in parallel, or any "is this ready / is this clean" check. `pyclawd check` is the canonical "am I done" gate.
 ---
 
@@ -28,6 +28,8 @@ self-reports and exits 2 instead of crashing.
 | Aggregate gate (the "done" check) | `pyclawd check` |
 | Gate on one file (parallelization) | `pyclawd check src/mypkg/foo.py` |
 | Gate on multiple files | `pyclawd check src/foo.py src/bar.py` |
+| Gate on git-changed files | `pyclawd check --changed [--against <ref>]` |
+| Machine-readable result | `pyclawd check --json` |
 
 ---
 
@@ -47,7 +49,23 @@ pyclawd check --log                  # also write each step's output to a log fi
 pyclawd check src/mypkg/foo.py       # scope quality steps to one file
 pyclawd check src/mypkg/             # scope to a directory
 pyclawd check src/a.py src/b.py      # scope to multiple files
+pyclawd check --changed              # scope to source files changed vs HEAD
+pyclawd check --changed --against main   # ...changed vs another ref
+pyclawd check --json                 # emit one machine-readable result object
+pyclawd check src/foo.py --test      # path-scoped BUT also run the whole test suite
 ```
+
+**Path-scoped runs are quality-only by default.** Positional paths, `--changed`,
+and `--json` all drop the whole-suite `test` step (it never scopes to a file) —
+pass `--test` to force it back. This is why a fleet verifying one file per agent
+uses `pyclawd check <file>` (or `--changed --json`) without ever needing `--skip
+test`.
+
+**`--json` for orchestration.** Emits one object —
+`{"passed", "scoped", "paths", "steps":[{"verb","status","exit_code","log","reason"}]}`
+— and nothing else on stdout (step output goes to log files). A fleet orchestrator
+branches on `passed` / per-step `status` (`ok`/`fail`/`skipped`) to decide
+commit-vs-no-commit per file, instead of grepping human text.
 
 Summary always printed after all steps:
 ```

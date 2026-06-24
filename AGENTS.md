@@ -46,7 +46,7 @@ on `PYTHONPATH`. Bare `python` misses the env and the in-tree source.
 | Lint / autofix | `pyclawd lint` · `pyclawd lint --fix` · `pyclawd lint <file...>` |
 | Format / check | `pyclawd format` · `pyclawd format --check` · `pyclawd format <file...>` |
 | Type-check | `pyclawd typecheck` · `pyclawd typecheck <file...>` |
-| **Aggregate quality gate** | `pyclawd check` · `--fix` · `--skip <verb>` · `--fail-fast` · `pyclawd check <file...>` |
+| **Aggregate quality gate** | `pyclawd check` · `--fix` · `--skip <verb>` · `--fail-fast` · `--changed` · `--json` · `pyclawd check <file...>` |
 | Build / dist / clean | `pyclawd compile` · `pyclawd dist` · `pyclawd clean [--ext]` |
 | Docs (if configured) | `pyclawd docs build\|run\|render\|serve\|status\|failures\|exec <page>` |
 | Code map (file → description) | `pyclawd ls [DIR]` · `pyclawd ls --missing` · `pyclawd ls --py` |
@@ -65,7 +65,11 @@ in place, and `--log` to also write each step's output to a log file (CI artifac
 Optional positional paths (e.g. `pyclawd check src/mypkg/foo.py`) scope quality
 steps to specific files — this requires **target-less quality cmds** in
 `.pyclawd/config.py` (e.g. `["ruff", "check"]` not `["ruff", "check", "src"]`; the
-tool reads its own target from `pyproject.toml` when no paths are given). Build/dist/
+tool reads its own target from `pyproject.toml` when no paths are given). `--changed
+[--against <ref>]` scopes to git-changed source files; `--json` emits a
+machine-readable per-step result for orchestration. **A path-scoped run (positional
+paths, `--changed`, or `--json`) is quality-only by default** — the whole-suite test
+step never scopes to a file, so it is dropped unless you pass `--test`. Build/dist/
 clean and docs commands only do real work when the project configures them;
 otherwise they degrade gracefully (exit 2 = not configured). Override config
 discovery with `--config PATH` (or the `PYCLAWD_CONFIG` env var); by default pyclawd

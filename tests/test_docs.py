@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+import sys
 from pathlib import Path
 
 import pytest
@@ -128,6 +129,35 @@ def test_docs_timings_no_cache(monkeypatch, tmp_path, capsys):
         docs_cmd.docs_timings(top=0)
     assert exc.value.exit_code == 0
     assert "No jupyter-cache database" in capsys.readouterr().out
+
+
+# ---- failures (jupyter-cache backed) ----------------------------------------
+
+
+def test_docs_failures_no_cache(monkeypatch, tmp_path, capsys):
+    project = _project(tmp_path)
+    # cache_dir/global.db does not exist → degrade cleanly.
+    monkeypatch.setattr(docs_cmd.run, "load_project_or_exit", lambda: project)
+    with pytest.raises(typer.Exit) as exc:
+        docs_cmd.docs_failures(full=False)
+    assert exc.value.exit_code == 0
+    assert "No cache yet" in capsys.readouterr().out
+
+
+def test_docs_failures_missing_backend(monkeypatch, tmp_path, capsys):
+    project = _project(tmp_path)
+    # The cache DB exists, so we get past the no-cache guard...
+    db = project.path(project.docs.cache_dir) / "global.db"
+    db.parent.mkdir(parents=True, exist_ok=True)
+    db.touch()
+    # ...but the jupyter-cache backend can't be imported → exit 2 (not configured).
+    monkeypatch.setitem(sys.modules, "nbformat", None)
+    monkeypatch.setitem(sys.modules, "jupyter_cache", None)
+    monkeypatch.setattr(docs_cmd.run, "load_project_or_exit", lambda: project)
+    with pytest.raises(typer.Exit) as exc:
+        docs_cmd.docs_failures(full=False)
+    assert exc.value.exit_code == 2
+    assert "jupyter-cache" in capsys.readouterr().err
 
 
 # ---- serve guard ------------------------------------------------------------

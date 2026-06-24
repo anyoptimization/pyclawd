@@ -20,7 +20,13 @@ from typer.testing import CliRunner
 
 from pyclawd import discovery
 from pyclawd.cli import app
-from pyclawd.commands.ls import _collect_files, describe_file
+from pyclawd.commands.ls import (
+    _collect_files,
+    _descriptions_filter,
+    check_descriptions,
+    describe_file,
+)
+from pyclawd.project import DescriptionConfig, DoctorConfig, Project, TestConfig
 
 runner = CliRunner()
 
@@ -238,3 +244,114 @@ def test_ls_nonexistent_path_exits_2(tmp_path: Path) -> None:
     assert result.exit_code == 2
     assert "not a directory" in result.stderr
     assert "Traceback" not in result.stderr  # clean error, no traceback
+
+
+# --------------------------------------------------------------------------- #
+# Descriptions gate — _descriptions_filter + check_descriptions.
+# --------------------------------------------------------------------------- #
+
+
+def _make_project(
+    root: Path,
+    *,
+    src_dir: str = "src",
+    descriptions: DescriptionConfig | None = None,
+) -> Project:
+    """Build a minimal in-memory ``Project`` rooted at *root* for the descriptions gate."""
+    return Project(
+        name="demo",
+        conda_env=None,
+        root_markers=[],
+        test=TestConfig(
+            tests_dir="tests/",
+            classname_prefix="tests.",
+            integration_files=[],
+            markers={"default": ""},
+        ),
+        doctor=DoctorConfig(core_deps=[], dev_deps=[], tool_files=[], binaries=[]),
+        src_dir=src_dir,
+        descriptions=descriptions or DescriptionConfig(),
+        root=root,
+    )
+
+
+def test_descriptions_filter_default_include_matches_python(tmp_path: Path) -> None:
+    project = _make_project(tmp_path)
+    # Default include is [r"\.pyx?$"] — .py and .pyx pass, everything else is rejected.
+    assert _descriptions_filter("a.py", project) is True
+    assert _descriptions_filter("b.pyx", project) is True
+    assert _descriptions_filter("c.txt", project) is False
+    assert _descriptions_filter("d.f90", project) is False
+    assert _descriptions_filter("data.dat", project) is False
+
+
+def test_descriptions_filter_exclude_rejects_match(tmp_path: Path) -> None:
+    project = _make_project(tmp_path, descriptions=DescriptionConfig(exclude=[r"vendor/"]))
+    assert _descriptions_filter("vendor/x.py", project) is False
+    assert _descriptions_filter("src/x.py", project) is True
+
+
+def test_descriptions_filter_empty_include_matches_anything(tmp_path: Path) -> None:
+    # With an empty include list the `includes and ...` guard short-circuits, so a
+    # file is accepted unless an exclude pattern rejects it.
+    project = _make_project(tmp_path, descriptions=DescriptionConfig(include=[]))
+    assert _descriptions_filter("c.txt", project) is True
+    assert _descriptions_filter("a.py", project) is True
+    # An exclude still applies on top of the empty include.
+    project_ex = _make_project(
+        tmp_path, descriptions=DescriptionConfig(include=[], exclude=[r"\.txt$"])
+    )
+    assert _descriptions_filter("c.txt", project_ex) is False
+    assert _descriptions_filter("a.py", project_ex) is True
+
+
+def test_check_descriptions_all_described_returns_zero(tmp_path: Path) -> None:
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src" / "a.py").write_text('"""a."""\n')
+    (tmp_path / "src" / "b.py").write_text('"""b."""\n')
+    project = _make_project(tmp_path)
+
+    assert check_descriptions(project) == 0
+
+
+def test_check_descriptions_missing_returns_one_and_prints(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src" / "a.py").write_text('"""a."""\n')
+    (tmp_path / "src" / "bad.py").write_text("x = 1\n")  # no description
+    project = _make_project(tmp_path)
+
+    assert check_descriptions(project) == 1
+    out = capsys.readouterr().out
+    assert "bad.py" in out
+    assert "a.py" not in out  # only the missing file is listed
+
+
+def test_check_descriptions_quiet_suppresses_output(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src" / "bad.py").write_text("x = 1\n")  # no description
+    project = _make_project(tmp_path)
+
+    assert check_descriptions(project, quiet=True) == 1
+    assert capsys.readouterr().out == ""
+
+
+def test_check_descriptions_paths_scopes_and_filters(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src" / "a.py").write_text('"""a."""\n')
+    (tmp_path / "src" / "bad.py").write_text("x = 1\n")  # no description
+    (tmp_path / "notes.txt").write_text("just text\n")  # not include-eligible
+    project = _make_project(tmp_path)
+
+    # Only the described file plus a non-eligible .txt → all eligible files described.
+    assert check_descriptions(project, paths=["src/a.py", "notes.txt"]) == 0
+    # bad.py is outside the scoped paths, so it is not flagged.
+    assert "bad.py" not in capsys.readouterr().out
+
+    # Scoping in the undescribed file flips the result to 1.
+    assert check_descriptions(project, paths=["src/bad.py"]) == 1
