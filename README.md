@@ -132,7 +132,7 @@ Copy whichever is closer and delete what you don't use.
 
 ## Skills
 
-pyclawd ships agent-facing slash-command skills under [`skills/`](skills/): `pyclawd-doctor`, `pyclawd-tests`, `pyclawd-quality`, and `pyclawd-docs`. They are thin wrappers over the CLI. Copy or symlink the `pyclawd-*` directories into a project's `.claude/skills/` — see [`skills/README.md`](skills/README.md). Agent doctrine for any pyclawd project lives in [`AGENTS.md`](AGENTS.md).
+pyclawd ships agent-facing slash-command skills under [`skills/`](skills/): the start-here umbrella `pyclawd` skill plus the focused `pyclawd-doctor`, `pyclawd-tests`, `pyclawd-quality`, `pyclawd-golden`, `pyclawd-docs`, and `pyclawd-upgrade`. They are thin wrappers over the CLI. Copy or symlink the `pyclawd-*` directories into a project's `.claude/skills/` — see [`skills/README.md`](skills/README.md). Agent doctrine for any pyclawd project lives in [`AGENTS.md`](AGENTS.md).
 
 ## Status
 

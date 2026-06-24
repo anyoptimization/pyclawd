@@ -7,7 +7,8 @@ configuration model and loader so adopting projects can describe themselves:
 - :class:`Project` and the nested :class:`DocsConfig`, :class:`TestConfig`,
   :class:`DoctorConfig`, :class:`QualityConfig`, :class:`CoverageConfig`, and
   :class:`DescriptionConfig` config groups.
-- :func:`load_project` / :func:`find_config_file` to discover and load a project.
+- :func:`load_project` / :func:`find_config_file` to discover and load a project,
+  :func:`set_config_override` to force a config path, and :class:`ConfigError`.
 - :class:`Check` and the :data:`OK` / :data:`WARN` / :data:`FAIL` status
   constants used by the ``doctor`` health-check hook.
 

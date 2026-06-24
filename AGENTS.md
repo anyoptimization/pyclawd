@@ -40,7 +40,7 @@ on `PYTHONPATH`. Bare `python` misses the env and the in-tree source.
 | Everything incl. `slow` | `pyclawd test all` |
 | Select tests | `pyclawd test -k <kw>` · `pyclawd test tests/path::node` |
 | Fix-loop | `pyclawd test failures` → `pyclawd test fix` → `pyclawd test run` |
-| Slowest tests | `pyclawd test timings [--top N]` |
+| Slowest tests | `pyclawd test timings [--top N] [--slow-threshold S]` (S = list tests slower than S seconds — `slow`-marker candidates) |
 | Coverage | `pyclawd coverage [--check] [--html]` |
 | Prove behavior unchanged | `pyclawd golden` · `golden update [-k EXPR]` · `status` · `prune` |
 | Lint / autofix | `pyclawd lint` · `pyclawd lint --fix` · `pyclawd lint <file...>` |

@@ -30,6 +30,7 @@ import sys
 import tempfile
 import time
 from pathlib import Path
+from typing import IO, Any
 
 import typer
 
@@ -160,7 +161,7 @@ def run_finish(rid: str, log: Path, code: int, t0: float) -> None:
 # ---- subprocess runners -----------------------------------------------------
 
 
-def _open_log(log: Path, cmd: list[str], mode: str, header: str):
+def _open_log(log: Path, cmd: list[str], mode: str, header: str) -> IO[Any]:
     r"""Open *log* (creating parents), write the *header* + ``$ cmd`` line, return the handle.
 
     *header* is a literal prefix (e.g. ``""`` to truncate-and-start, ``"\\n"`` to

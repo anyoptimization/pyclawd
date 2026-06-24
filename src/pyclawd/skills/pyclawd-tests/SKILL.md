@@ -17,7 +17,7 @@ Tiered test pipeline with a fix-loop. Tiers are marker expressions defined in th
 | Everything, including `slow` | `pyclawd test all` |
 | The fix-list (pytest lastfailed cache) | `pyclawd test failures` |
 | Debug the next failure (rerun `--lf -x`, stream it) | `pyclawd test fix` |
-| Slowest tests from the last run | `pyclawd test timings [--top N]` |
+| Slowest tests from the last run | `pyclawd test timings [--top N] [--slow-threshold S]` (S secs → `slow` candidates) |
 | Select by keyword | `pyclawd test -k <name>` |
 | Select a file / node / dir | `pyclawd test tests/path::name -x` · `pyclawd test tests/sub/` |
 
