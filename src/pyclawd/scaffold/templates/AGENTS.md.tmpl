@@ -35,7 +35,7 @@ root on `PYTHONPATH`. Bare `python` misses the env and the in-tree source.
 | Run Python in the env | `pyclawd python <file>` · `-m <mod>` · `-c <code>` |
 | Fast smoke (<30s, no integration) | `pyclawd test fast` |
 | Default gate (no slow) | `pyclawd test run` |
-| Full suite (incl. slow + long) | `pyclawd test all` |
+| Full suite (incl. slow) | `pyclawd test all` |
 | Select tests | `pyclawd test -k <kw>` · `pyclawd test tests/path::node` |
 | Fix-loop | `pyclawd test failures` → `pyclawd test fix` → `pyclawd test run` |
 | Coverage | `pyclawd coverage [--check] [--html]` |

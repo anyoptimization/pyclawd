@@ -35,7 +35,7 @@ from .repo import find_repo_root
 PYTHON_ENV = "PYCLAWD_PYTHON"
 
 
-def _exit_config_error(exc: ConfigError) -> NoReturn:
+def _exit_config_error(exc: Exception) -> NoReturn:
     """Print a clean one-line config error to stderr and exit 2 (no traceback)."""
     typer.secho(f"✗ {exc}", fg="red", err=True)
     raise typer.Exit(2)
@@ -57,12 +57,15 @@ def repo_root_or_exit() -> Path:
 def load_project_or_exit() -> Project:
     """Return the loaded project config, or exit(2) with a clear error if none.
 
-    A broken ``.pyclawd/config.py`` surfaces as a clean one-line message (via
-    :class:`~pyclawd.discovery.ConfigError`) and exit ``2`` — never a raw traceback.
+    A broken ``.pyclawd/config.py`` surfaces as a clean one-line message and exit
+    ``2`` — never a raw traceback. This covers both a config that fails to import
+    (:class:`~pyclawd.discovery.ConfigError`) and one that imports but is invalid —
+    no module-level ``project`` / wrong type (``TypeError``), or an unloadable spec
+    (``ImportError``) — all of which ``load_project`` may raise.
     """
     try:
         project = load_project()
-    except ConfigError as exc:
+    except (ConfigError, TypeError, ImportError) as exc:
         _exit_config_error(exc)
     if project is None:
         typer.secho(

@@ -98,7 +98,7 @@ def lint(
     raise typer.Exit(_run_cmd(project, cmd, "lint-fix" if fix else "lint", paths=paths))
 
 
-def format(  # noqa: A001 - intentional command name (`pyclawd format`)
+def format(
     check: bool = typer.Option(
         False, "--check", help="Check formatting without writing (format_check_cmd)."
     ),

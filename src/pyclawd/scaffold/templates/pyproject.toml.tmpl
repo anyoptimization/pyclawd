@@ -89,9 +89,11 @@ addopts = [
     "-n", "auto",
 ]
 markers = [
-    "slow: tests taking >1s — excluded from fast tier",
-    "integration: tests requiring external services or filesystem",
-    "long: tests too expensive for the default gate",
+    "slow: tests taking >1s — excluded from the fast and default tiers",
+    "integration: tests requiring external services/network/filesystem — excluded from fast",
+    # Optional extra expense tier — uncomment + add a tier (e.g. default = "not long")
+    # only if you want to defer the most expensive tests to a nightly `all` run:
+    # "long: tests too expensive even for the default gate (multi-minute)",
     # Uncomment when you opt into the golden behavior-regression oracle
     # (set `golden=GoldenConfig()` in .pyclawd/config.py — see `pyclawd-golden`):
     # "golden: behavior-regression snapshot test (compared via `pyclawd golden`)",

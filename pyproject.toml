@@ -53,6 +53,13 @@ path = "src/pyclawd/__init__.py"
 [tool.hatch.build.targets.wheel]
 packages = ["src/pyclawd"]
 
+# Ship the CHANGELOG inside the wheel so `pyclawd changelog` works from any
+# pip-installed pyclawd (PyPI included) — the agent-driven upgrade flow reads it to
+# learn what changed since a project's config was authored. Editable dev checkouts
+# fall back to the repo-root CHANGELOG.md.
+[tool.hatch.build.targets.wheel.force-include]
+"CHANGELOG.md" = "pyclawd/CHANGELOG.md"
+
 # --------------------------------------------------------------------------- #
 # Code-quality toolchain (dogfooded via `pyclawd lint/format/typecheck/check`).
 # --------------------------------------------------------------------------- #
@@ -68,7 +75,11 @@ extend-exclude = ["docs"]
 [tool.ruff.lint]
 # A sensible, modern default: pyflakes (F), pycodestyle (E), isort (I),
 # bugbear (B), pyupgrade (UP), flake8-simplify (SIM), comprehensions (C4).
-select = ["E", "F", "I", "B", "UP", "SIM", "C4", "D", "DOC"]
+# NOTE: `DOC` (pydoclint) is intentionally NOT selected — those rules only run
+# under ruff's unstable `preview`, so selecting them is a silent no-op (and emits a
+# warning). The Google docstring *convention* below + the `D` rules are the gate;
+# the no-types / Args-Returns style is upheld by review and the `pyclawd ls` map.
+select = ["E", "F", "I", "B", "UP", "SIM", "C4", "RUF", "PGH", "D"]
 # `compile` and `format` shadow builtins by design — they are intentional
 # command names (`pyclawd compile`, `pyclawd format`).
 

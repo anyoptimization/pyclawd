@@ -296,8 +296,8 @@ def ls(
 def _descriptions_filter(rel: str, project: Project) -> bool:
     """Return True when *rel* should be checked for a description.
 
-    Applies ``project.descriptions_include`` (must match ≥1) then
-    ``project.descriptions_exclude`` (skip if any matches).
+    Applies ``project.descriptions.include`` (must match ≥1) then
+    ``project.descriptions.exclude`` (skip if any matches).
     """
     includes = [re.compile(p) for p in project.descriptions.include]
     excludes = [re.compile(p) for p in project.descriptions.exclude]

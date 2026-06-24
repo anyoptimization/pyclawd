@@ -38,7 +38,7 @@ project = Project(
         tests_dir="tests/",
         classname_prefix="tests.",
         integration_files=[],
-        # No slow/long tests here, so every tier collects the same suite.
+        # No slow/integration tests here, so every tier collects nearly the same suite.
         markers={"fast": "not slow and not integration", "default": "not slow", "all": ""},
     ),
     coverage=CoverageConfig(source=["src/pyclawd"]),

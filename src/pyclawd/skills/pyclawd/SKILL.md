@@ -1,6 +1,6 @@
 ---
 name: pyclawd
-description: Start-here overview of pyclawd AND the complete best-practices doctrine for working in a pyclawd project. Covers the mental model, the full command surface, Python coding standards (testing, typing, linting, packaging, docs, CI), and the agent-specific rules that differ from manual development. Read this before any other pyclawd-* skill. Use when orienting in a pyclawd project, deciding which command to run, explaining what pyclawd is, or needing a reminder of the rules.
+description: Start-here overview of pyclawd AND the complete best-practices doctrine for working in a pyclawd project. Covers the mental model and Python coding standards (testing, typing, linting, packaging, docs, CI) and the agent-specific rules that differ from manual development — the *why* behind the repo's AGENTS.md operational contract. Read this before any other pyclawd-* skill. Use when orienting in a pyclawd project, explaining what pyclawd is, or needing a reminder of the rules.
 when_to_use: Orienting in a pyclawd repo, picking the right command, understanding the mental model, or refreshing on best practices before starting work. The umbrella over the focused pyclawd-* skills.
 ---
 
@@ -10,6 +10,14 @@ pyclawd is **a config-driven dev-task CLI for Python projects**. One file —
 `.pyclawd/config.py` — describes the project; `pyclawd <verb>` is the single
 stable contract for every task. Humans and AI agents drive the project the same
 way.
+
+> **How this skill relates to `AGENTS.md`.** Every pyclawd repo ships an
+> `AGENTS.md` that is *always* in your context — the **operational contract**: the
+> command quick-reference, boundaries, and non-negotiables. This skill is the
+> **doctrine behind it** — the *why*, and the testing / typing / packaging
+> deep-dives. AGENTS.md says *what to run*; this skill says *how to write good
+> code*. Where they could overlap, AGENTS.md owns the command surface, so reach for
+> AGENTS.md (or `pyclawd config`) for the exact commands rather than a table here.
 
 ---
 
@@ -41,28 +49,11 @@ pyclawd python -c "import mypkg"
 `pyclawd python` runs in the project's configured env with the repo root on
 `PYTHONPATH`. Bare `python` misses the env and the in-tree source.
 
-### Full command surface
-
-| Task | Command | When |
-|---|---|---|
-| Resolved config | `pyclawd config` | Start of session — see what every command runs |
-| Health-check | `pyclawd doctor` | Start of session, on env weirdness |
-| Run Python | `pyclawd python <file\|module\|-c>` | Always |
-| Fast smoke (<30s) | `pyclawd test fast` | After every edit |
-| Default PR gate | `pyclawd test run` | Before declaring done |
-| Full suite | `pyclawd test all` | Nightly / release |
-| Fix-loop | `pyclawd test failures` → `pyclawd test fix` | When tests fail |
-| Slowest tests | `pyclawd test timings [--top N]` | Finding slow-unmarked tests |
-| Lint / autofix | `pyclawd lint` · `pyclawd lint --fix` · `pyclawd lint <file...>` | On code changes |
-| Format / check | `pyclawd format` · `pyclawd format --check` · `pyclawd format <file...>` | On code changes |
-| Type-check | `pyclawd typecheck` · `pyclawd typecheck <file...>` | On code changes |
-| **Done gate** | `pyclawd check` | Before every PR / commit |
-| Done + autofix | `pyclawd check --fix` | When format/lint need fixing |
-| Build / dist | `pyclawd compile` · `pyclawd dist` | On release |
-| Docs | `pyclawd docs build\|exec\|failures\|status\|serve` | When editing docs |
-| Code map | `pyclawd ls [DIR]` · `pyclawd ls --missing` | Navigation |
-| Scaffold | `pyclawd new <name>` · `pyclawd new` (adopt) | New projects |
-| Repo root | `pyclawd root` | Sanity check |
+The full command quick-reference lives in the repo's **`AGENTS.md`** (always in
+your context) and `pyclawd config` shows what each verb resolves to *for this
+project* — consult those rather than a copy here that can drift. The focused skills
+go deep on each area: `pyclawd-tests`, `pyclawd-quality`, `pyclawd-golden`,
+`pyclawd-doctor`, `pyclawd-docs`.
 
 ### Exit-code contract
 
@@ -92,11 +83,17 @@ Mark exceptions only — never mark fast or unit:
 ```python
 @pytest.mark.slow        # speed axis: test takes >1s
 @pytest.mark.integration # scope axis: needs live DB, network, filesystem
-@pytest.mark.long        # too expensive for the default gate
 ```
 
-Unmarked tests run in **every** tier. `--strict-markers` and `--strict-config`
-are always on — typo'd markers error immediately.
+Two orthogonal axes — **speed** (`slow`) and **scope** (`integration`) — because a
+test can be fast-but-needs-a-DB or slow-but-hermetic. Unmarked tests run in
+**every** tier. `--strict-markers` and `--strict-config` are always on — typo'd
+markers error immediately. (Need a nightly-only third expense tier? Add your own
+`long` marker + a `default = "not long"` tier; it's not in the default set.)
+
+Distinct from markers: use `pytest.importorskip` / `skipif` when a test should
+**skip itself** because an optional dependency/service is absent — that's
+orthogonal to tier deselection and the two can apply to the same test.
 
 ### Fix-loop doctrine
 
@@ -125,7 +122,7 @@ balloons your diff. Two options:
 
 ### Docstring style — opting out or changing convention
 
-The scaffold defaults to **Google style** enforced by ruff `D`/`DOC` rules.
+The scaffold defaults to **Google style**, checked by ruff's `D` rules.
 For repos with an existing docstring convention, set it once in
 `pyproject.toml` — no docstrings need rewriting:
 
@@ -226,7 +223,8 @@ excluded. Fortran, C, data files are never checked by default.
 
 ### Ruff (lint + format)
 
-Standard rule set: `E F I B UP SIM C4 RUF PGH`. Always runs via
+Standard rule set: `E F I B UP SIM C4 RUF PGH D` (the scaffold's default; the `D`
+rules check docstring style under the Google convention below). Always runs via
 `pyclawd lint` / `pyclawd format`. Agents use `--fix` unconditionally — we
 review every diff anyway.
 
@@ -255,9 +253,15 @@ ignore_missing_imports = true
 
 ### Docstring convention — Google style, no types
 
-ruff enforces **Google-style docstrings** (`D` + `DOC` rules). Type
+ruff checks docstring style under the **Google** convention (the `D` rules). Type
 annotations are the single source of truth (mypy owns types); docstrings add
 the *why/what* that annotations can't.
+
+> Note: ruff's `convention = "google"` selects which `D` rules run — it does **not**
+> hard-reject a well-formed NumPy `Parameters` block on its own (and the `DOC`
+> pydoclint rules only run under ruff's unstable `preview`, so pyclawd does not
+> select them). Treat Google style as the rule here, upheld by review and agents —
+> write `Args:`/`Returns:`, never NumPy sections.
 
 ```python
 # ✓ correct — no types in docstring, annotations carry them
@@ -286,11 +290,10 @@ def foo(x: int, y: str) -> bool:
     """
 ```
 
-Rules enforced by `pyclawd lint`:
+Rules enforced by `pyclawd lint` (the `D` family, Google convention):
 - `D103` — every public function needs a docstring (tests exempted)
 - `D205` — blank line between summary and body
 - `D416` — section names end with colon (`Args:` not `Args`)
-- `DOC` — parameter names in docstring match the actual signature
 
 **Every module** also needs a one-line top-of-file docstring. `pyclawd ls`
 builds the code map from these; `pyclawd ls --missing` finds gaps. **Keep
@@ -385,8 +388,10 @@ Use both: `pyclawd config` for orientation, `config.py` for understanding intent
 |---|---|
 | Running or fixing tests | `pyclawd-tests` |
 | Lint, format, typecheck, check gate | `pyclawd-quality` |
+| Prove behavior unchanged (refactor/migration) | `pyclawd-golden` |
 | Env looks wrong, import fails | `pyclawd-doctor` |
 | Building docs | `pyclawd-docs` |
+| pyclawd was upgraded — migrate the config | `pyclawd-upgrade` |
 | Full doctrine + project boundaries | `AGENTS.md` at repo root |
 | Research-backed best practices | `.claude/docs/BEST_PRACTICES.md` |
 | Improvement roadmap | `.claude/docs/PYCLAWD_ROADMAP.md` |

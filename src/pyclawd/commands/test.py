@@ -30,9 +30,9 @@ def test(ctx: typer.Context) -> None:
     """Run tests. Verbs mirror `pyclawd docs`; otherwise run a category/pytest passthrough.
 
     Pipeline verbs (logged, instrumented):
-      pyclawd test run            full default suite (not long) → run-id log + timing/failure tables
-      pyclawd test fast           the <30s smoke tier (not slow, not long), under xdist (-n auto)
-      pyclawd test all            everything, including `long`
+      pyclawd test run            full default suite (not slow) → run-id log + timing/failure tables
+      pyclawd test fast           the <30s smoke tier (not slow/integration), xdist (-n auto)
+      pyclawd test all            everything, including `slow`
       pyclawd test failures       the fix-list (pytest lastfailed cache)
       pyclawd test timings [--top N]   slowest tests from the last run
       pyclawd test fix            debug primitive: rerun --lf -x, stream the next failure

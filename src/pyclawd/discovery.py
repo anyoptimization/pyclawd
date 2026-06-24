@@ -184,7 +184,7 @@ def load_project(
     module = importlib.util.module_from_spec(spec)
     try:
         spec.loader.exec_module(module)
-    except Exception as exc:  # noqa: BLE001 - surface any config import failure cleanly
+    except Exception as exc:
         raise ConfigError(f"failed to load {config_file}: {type(exc).__name__}: {exc}") from exc
 
     project = getattr(module, "project", None)

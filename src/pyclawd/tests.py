@@ -230,7 +230,7 @@ def print_failures(project: Project) -> int:
 
     if integ:
         print(
-            f"\nℹ️  {len(integ)} stale entr(ies) from deselected integration suites "
+            f"\nnote: {len(integ)} stale entr(ies) from deselected integration suites "
             f"(re-run the tier/category that owns them — see TestConfig.markers — to refresh)."
         )
     return 1 if unit else 0

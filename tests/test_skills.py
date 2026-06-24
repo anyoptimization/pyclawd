@@ -17,12 +17,21 @@ from pathlib import Path
 from pyclawd.commands.skills import (
     SKILL_PREFIX,
     bundled_skill_names,
+    drifted_installed_skills,
     install_skills,
     skill_description,
 )
 
 #: The skills pyclawd ships with — the umbrella ``pyclawd`` plus the focused four.
-EXPECTED = ["pyclawd", "pyclawd-docs", "pyclawd-doctor", "pyclawd-quality", "pyclawd-tests"]
+EXPECTED = [
+    "pyclawd",
+    "pyclawd-docs",
+    "pyclawd-doctor",
+    "pyclawd-golden",
+    "pyclawd-quality",
+    "pyclawd-tests",
+    "pyclawd-upgrade",
+]
 
 
 def test_bundled_skill_names_lists_the_shipped_skills() -> None:
@@ -41,9 +50,10 @@ def test_every_bundled_skill_has_a_description() -> None:
 
 def test_install_copies_each_skill_with_its_skill_md(tmp_path: Path) -> None:
     target = tmp_path / ".claude" / "skills"
-    installed, skipped = install_skills(target)
+    installed, refreshed, skipped = install_skills(target)
 
     assert sorted(installed) == EXPECTED
+    assert refreshed == []
     assert skipped == []
     for name in EXPECTED:
         assert (target / name / "SKILL.md").is_file()
@@ -51,27 +61,61 @@ def test_install_copies_each_skill_with_its_skill_md(tmp_path: Path) -> None:
     assert not (target / EXPECTED[0]).is_symlink()
 
 
-def test_install_skips_existing_unless_force(tmp_path: Path) -> None:
+def test_install_skips_identical_existing(tmp_path: Path) -> None:
     target = tmp_path / "skills"
     install_skills(target)
 
-    # A second run skips everything (already present) and changes nothing.
-    installed, skipped = install_skills(target)
+    # A second run with no changes skips everything (already current).
+    installed, refreshed, skipped = install_skills(target)
     assert installed == []
+    assert refreshed == []
     assert sorted(skipped) == EXPECTED
 
-    # Mark one skill, then force-reinstall: the marker is gone (dir replaced).
+
+def test_install_auto_refreshes_drifted_skill(tmp_path: Path) -> None:
+    """A drifted installed skill is re-copied without --force (the upgrade path)."""
+    target = tmp_path / "skills"
+    install_skills(target)
+
+    # Simulate an older install whose content has since changed in the package.
+    drifted_md = target / EXPECTED[0] / "SKILL.md"
+    drifted_md.write_text("stale content from an older pyclawd\n", encoding="utf-8")
+
+    installed, refreshed, skipped = install_skills(target)
+    assert installed == []
+    assert refreshed == [EXPECTED[0]]  # only the drifted one is refreshed
+    assert sorted(skipped) == sorted(EXPECTED[1:])
+    # The drifted file was restored from the bundled source.
+    assert "stale content" not in drifted_md.read_text(encoding="utf-8")
+
+
+def test_force_refreshes_even_identical(tmp_path: Path) -> None:
+    target = tmp_path / "skills"
+    install_skills(target)
     marker = target / EXPECTED[0] / "MARKER"
-    marker.write_text("stale", encoding="utf-8")
-    installed, skipped = install_skills(target, force=True)
-    assert sorted(installed) == EXPECTED
+    marker.write_text("x", encoding="utf-8")  # extra file → also counts as drift
+    installed, refreshed, skipped = install_skills(target, force=True)
+    assert installed == []
+    assert sorted(refreshed) == EXPECTED  # force re-copies all existing
     assert skipped == []
     assert not marker.exists()
 
 
+def test_drifted_installed_skills_detects_and_clears(tmp_path: Path) -> None:
+    target = tmp_path / "skills"
+    install_skills(target)
+    assert drifted_installed_skills(target) == []  # fresh install → no drift
+
+    (target / EXPECTED[0] / "SKILL.md").write_text("old\n", encoding="utf-8")
+    assert drifted_installed_skills(target) == [EXPECTED[0]]
+
+    install_skills(target)  # auto-refresh
+    assert drifted_installed_skills(target) == []
+
+
 def test_install_symlink_mode_creates_symlinks(tmp_path: Path) -> None:
     target = tmp_path / "skills"
-    installed, _ = install_skills(target, symlink=True)
+    installed, _refreshed, _skipped = install_skills(target, symlink=True)
 
     assert sorted(installed) == EXPECTED
     for name in EXPECTED:
@@ -79,6 +123,8 @@ def test_install_symlink_mode_creates_symlinks(tmp_path: Path) -> None:
         assert link.is_symlink()
         # The symlink resolves to a real dir holding the SKILL.md.
         assert (link / "SKILL.md").is_file()
+    # A symlink always tracks the source, so it never registers as drifted.
+    assert drifted_installed_skills(target) == []
 
 
 def test_install_creates_missing_target_dir(tmp_path: Path) -> None:

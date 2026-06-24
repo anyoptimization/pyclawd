@@ -98,10 +98,11 @@ def test_docs_status_exits_2_when_docs_unconfigured(tmp_path):
     assert "docs not configured" in result.stderr
 
 
-def test_compile_exits_0_when_no_compile_step(tmp_path):
+def test_compile_exits_2_when_no_compile_step(tmp_path):
     _write_config(tmp_path)  # compile_cmd is empty
     result = runner.invoke(app, ["--config", str(tmp_path), "compile"])
-    assert result.exit_code == 0
+    # 0/2 contract: a command that exists but isn't configured exits 2.
+    assert result.exit_code == 2
     assert "not configured" in result.stdout
 
 

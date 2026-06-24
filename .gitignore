@@ -219,3 +219,6 @@ __marimo__/
 
 # Generic pyclawd skills live in user scope (~/.claude/skills), not the repo.
 .claude/skills/
+
+# Claude Code agent worktrees (transient — never commit)
+.claude/worktrees/

@@ -23,7 +23,7 @@ pytest.importorskip("sphinx")
 pytest.importorskip("nbsphinx")
 pytest.importorskip("jupytext")
 
-from pyclawd.commands.new import _new_project  # noqa: E402 - after importorskip guards
+from pyclawd.commands.new import _new_project
 
 
 @pytest.mark.slow

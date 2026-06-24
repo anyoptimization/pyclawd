@@ -12,9 +12,9 @@ Tiered test pipeline with a fix-loop. Tiers are marker expressions defined in th
 
 | Task | Command |
 |---|---|
-| Fast smoke tier (<30s, xdist `-n auto`, excludes slow+long) | `pyclawd test fast` |
-| Default gate (everything but `long`) | `pyclawd test run` |
-| Everything, including `long` | `pyclawd test all` |
+| Fast smoke tier (<30s, xdist `-n auto`, excludes slow+integration) | `pyclawd test fast` |
+| Default gate (everything but `slow`) | `pyclawd test run` |
+| Everything, including `slow` | `pyclawd test all` |
 | The fix-list (pytest lastfailed cache) | `pyclawd test failures` |
 | Debug the next failure (rerun `--lf -x`, stream it) | `pyclawd test fix` |
 | Slowest tests from the last run | `pyclawd test timings [--top N]` |
@@ -38,8 +38,8 @@ Stop-early to fix, full run to verify:
 | Float-equality assertion flaps | Use tolerances — `np.testing.assert_allclose(..., rtol=, atol=)`, not `==`. |
 | Unseeded stochastic test | Pin the `seed` so the run is deterministic. |
 | Mass import / collection errors | An env problem, not a test bug — run `pyclawd doctor`, fix the FAILs. |
-| Only `fast` is green, `run` red | A `slow`/`long` test broke — run `pyclawd test run` (or `all`) and fix it. |
+| Only `fast` is green, `run` red | A `slow` test broke — run `pyclawd test run` (or `all`) and fix it. |
 
 ## Tiering
 
-Exclude a heavy module from `fast` by marking the tests themselves (`pytestmark = pytest.mark.slow` at module top) — a real marker, not a hardcoded list. `fast` excludes `slow`+`long`; `run` excludes only `long`; `all` includes everything.
+Two orthogonal marker axes: **speed** (`slow`, >1s) and **scope** (`integration`, needs a live DB/network/filesystem). Unmarked tests are fast units and run in every tier. Exclude a heavy module from `fast` by marking the tests themselves (`pytestmark = pytest.mark.slow` at module top) — a real marker, not a hardcoded list. `fast` excludes `slow`+`integration`; `run` (default) excludes `slow`; `all` includes everything. (For a nightly-only third expense tier, add your own `long` marker + a `default = "not long"` tier — it's not in the default set.) Use `pytest.importorskip` for tests that should skip themselves when an optional dependency is absent — orthogonal to tier markers.

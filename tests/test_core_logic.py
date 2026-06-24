@@ -70,7 +70,7 @@ def test_has_target(args, expected):
 
 
 # --------------------------------------------------------------------------- #
-# run.python_prefix — interpreter resolution: env var › python_cmd › sys.executable.
+# run.python_prefix — interpreter resolution: env var > python_cmd > sys.executable.
 # --------------------------------------------------------------------------- #
 
 

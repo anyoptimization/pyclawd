@@ -28,7 +28,12 @@ def _under_root(path: Path, root: Path) -> bool:
         return False
 
 
-def compile() -> None:  # noqa: A001 - intentional command name (`pyclawd compile`)
+#: Exit code for a command invoked on a project that has not configured that step
+#: (the 0/2 contract: 2 = "command exists but the feature is not configured").
+_UNCONFIGURED = 2
+
+
+def compile() -> None:
     """Build the project's extensions in place (``project.compile_cmd``)."""
     project = run.load_project_or_exit()
     if not project.compile_cmd:
@@ -36,7 +41,7 @@ def compile() -> None:  # noqa: A001 - intentional command name (`pyclawd compil
             "compile: not configured for this project (project.compile_cmd is empty).",
             fg="yellow",
         )
-        raise typer.Exit(0)
+        raise typer.Exit(_UNCONFIGURED)
     raise typer.Exit(run.python(project.compile_cmd))
 
 
@@ -48,7 +53,7 @@ def dist() -> None:
             "dist: not configured for this project (project.dist_cmd is empty).",
             fg="yellow",
         )
-        raise typer.Exit(0)
+        raise typer.Exit(_UNCONFIGURED)
     raise typer.Exit(run.python(project.dist_cmd))
 
 

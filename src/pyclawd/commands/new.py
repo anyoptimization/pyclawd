@@ -201,15 +201,20 @@ def _install_project_skills() -> None:
     than being vendored into this project's ``.claude/skills/``.
     """
     dest = user_skills_dir()
-    installed, skipped = install_skills(force=False)  # default = user scope
+    installed, refreshed, skipped = install_skills(force=False)  # default = user scope
     if installed:
         typer.secho(
             f"✓ installed {len(installed)} skill(s) into {dest}: " + ", ".join(installed),
             fg="green",
         )
+    if refreshed:
+        typer.secho(
+            f"↻ refreshed {len(refreshed)} drifted skill(s) in {dest}: " + ", ".join(refreshed),
+            fg="cyan",
+        )
     if skipped:
         typer.secho(
-            f"  · {len(skipped)} skill(s) already present in {dest} (use --force to refresh)",
+            f"  · {len(skipped)} skill(s) already current in {dest}",
             fg="bright_black",
         )
     if not bundled_skill_names():

@@ -25,7 +25,7 @@ def config() -> None:
     console = Console()
     try:
         project = load_project()
-    except ConfigError as exc:
+    except (ConfigError, TypeError, ImportError) as exc:
         console.print(f"[red]✗ {exc}[/red]")
         raise typer.Exit(2) from None
     if project is None:

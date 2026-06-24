@@ -36,8 +36,8 @@ on `PYTHONPATH`. Bare `python` misses the env and the in-tree source.
 | Health-check the dev env | `pyclawd doctor` |
 | Run Python in the env | `pyclawd python <file>` · `-m <mod>` · `-c <code>` |
 | Fast smoke tests (<30s, xdist) | `pyclawd test fast` |
-| Default test gate (not `long`) | `pyclawd test run` |
-| Everything incl. `long` | `pyclawd test all` |
+| Default test gate (not `slow`) | `pyclawd test run` |
+| Everything incl. `slow` | `pyclawd test all` |
 | Select tests | `pyclawd test -k <kw>` · `pyclawd test tests/path::node` |
 | Fix-loop | `pyclawd test failures` → `pyclawd test fix` → `pyclawd test run` |
 | Slowest tests | `pyclawd test timings [--top N]` |

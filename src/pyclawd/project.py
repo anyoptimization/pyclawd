@@ -134,9 +134,9 @@ class TestConfig:
     pipeline verbs use three well-known keys; any *other* key you add becomes a
     ``pyclawd test <key>`` category (nothing is assumed — define only what you use):
 
-    - ``"default"`` — the comprehensive default gate (e.g. everything but ``long``).
-    - ``"fast"`` — the <30s smoke tier (e.g. also excludes ``slow``).
-    - ``"all"`` — everything.
+    - ``"default"`` — the comprehensive gate (e.g. ``"not slow"``).
+    - ``"fast"`` — the <30s smoke tier (e.g. ``"not slow and not integration"``).
+    - ``"all"`` — everything (no ``-m`` filter).
     - any extra key (e.g. ``"examples"`` / ``"docs"``) — a per-category suite,
       runnable as ``pyclawd test examples`` / ``pyclawd test docs``.
 
@@ -144,8 +144,11 @@ class TestConfig:
         tests_dir: Root-relative directory containing the unit tests (e.g. ``"tests/"``).
         classname_prefix: Dotted prefix junit assigns to test classnames, used to reconstruct
             path-ish node ids (e.g. ``"tests."``).
-        integration_files: Root-relative test files that are their own integration suites and are
-            deselected by the unit tiers (e.g. ``["tests/test_examples.py", ...]``).
+        integration_files: A narrow cache-hygiene helper (not a second "integration" concept —
+            the scope axis is the ``integration`` marker). Root-relative test files whose
+            stale ``lastfailed`` entries ``pyclawd test failures`` lists separately, since the
+            unit tiers deselect them and they never re-run to clear (e.g.
+            ``["tests/test_examples.py", ...]``).
         markers: Tier name → pytest ``-m`` marker expression (see above). A tier the
             project does not define simply applies no ``-m`` filter (it is **not** an
             error to omit ``fast`` or ``all``), so the tier set is fully customisable.
