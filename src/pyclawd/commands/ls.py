@@ -306,7 +306,9 @@ def _descriptions_filter(rel: str, project: Project) -> bool:
     return not any(pat.search(rel) for pat in excludes)
 
 
-def check_descriptions(project: Project, paths: list[str] | None = None) -> int:
+def check_descriptions(
+    project: Project, paths: list[str] | None = None, quiet: bool = False
+) -> int:
     """Check that every source file in *project*'s ``src_dir`` has a description.
 
     Used by ``pyclawd check`` when ``"descriptions"`` is in
@@ -318,6 +320,12 @@ def check_descriptions(project: Project, paths: list[str] | None = None) -> int:
         paths: Optional list of specific files to check. When given, only those
             files are checked instead of the full ``src_dir``. The include/exclude
             filters still apply.
+        quiet: Suppress all console output and only return the status code. Used by
+            ``pyclawd check --json`` so the step contributes a status without
+            polluting the machine-readable output.
+
+    Returns:
+        ``0`` when all eligible files are described, ``1`` when any are missing.
     """
     root = project.root
     assert root is not None
@@ -336,18 +344,20 @@ def check_descriptions(project: Project, paths: list[str] | None = None) -> int:
     missing = [rel for rel, desc in rows if not desc]
 
     if missing:
-        width = min(max(len(r) for r in missing), 60)
-        for rel in missing:
-            typer.secho(f"  {rel.ljust(width)}  ", nl=False)
-            typer.secho("(no description)", fg="yellow")
-        typer.secho(
-            f"\n✗ {len(missing)}/{len(rows)} files lack a top-of-file description"
-            " — add a module docstring or leading # comment.",
-            fg="red",
-        )
+        if not quiet:
+            width = min(max(len(r) for r in missing), 60)
+            for rel in missing:
+                typer.secho(f"  {rel.ljust(width)}  ", nl=False)
+                typer.secho("(no description)", fg="yellow")
+            typer.secho(
+                f"\n✗ {len(missing)}/{len(rows)} files lack a top-of-file description"
+                " — add a module docstring or leading # comment.",
+                fg="red",
+            )
         return 1
 
-    typer.secho(f"✓ all {len(rows)} files have descriptions", fg="green")
+    if not quiet:
+        typer.secho(f"✓ all {len(rows)} files have descriptions", fg="green")
     return 0
 
 

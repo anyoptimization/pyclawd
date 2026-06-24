@@ -22,12 +22,15 @@ Exit-code contract (agent-native, deterministic):
 
 from __future__ import annotations
 
+import json as _json
+import re
 from pathlib import Path
 
 import typer
 
-from .. import run, tests
+from .. import repo, run, tests
 from ..logs import category_dir, run_id
+from ..logs import run_logged as _run_logged
 from ..logs import tee as _tee
 from ..project import Project, QualityConfig
 from . import ls as ls_cmd
@@ -155,6 +158,7 @@ def _run_step(
     fix: bool = False,
     log: Path | None = None,
     paths: list[str] | None = None,
+    quiet: bool = False,
 ) -> int:
     """Run one ``check`` step and return its exit code.
 
@@ -167,25 +171,30 @@ def _run_step(
     When *fix* is True, format and lint steps run in autofix mode.
     *paths* are appended to the quality-step argv to scope it to specific
     files/directories; they are ignored for ``test`` and ``descriptions``.
+    When *quiet* is True (``--json`` mode) the step writes only to *log* and never
+    to the console, so machine-readable output stays clean.
     """
     if verb == "test":
         markers = project.test.markers.get("default", "")
         return tests.run_suite([], markers, "check", project, jobs=project.test.jobs)
 
     if verb == "descriptions":
-        return ls_cmd.check_descriptions(project, paths=paths)
+        return ls_cmd.check_descriptions(project, paths=paths, quiet=quiet)
 
     cmd = _step_cmd(verb, quality, fix=fix)
     if not cmd:
-        typer.secho(
-            f"check: step '{verb}' is unknown or unconfigured — "
-            "fix Project.quality.check_sequence / *_cmd in .pyclawd/config.py",
-            fg="red",
-            err=True,
-        )
+        if not quiet:
+            typer.secho(
+                f"check: step '{verb}' is unknown or unconfigured — "
+                "fix Project.quality.check_sequence / *_cmd in .pyclawd/config.py",
+                fg="red",
+                err=True,
+            )
         return _UNCONFIGURED
     assert project.root is not None
     full_cmd = list(cmd) + list(paths or [])
+    if quiet and log is not None:
+        return _run_logged(full_cmd, log, project.root)
     if log is not None:
         return _tee(full_cmd, log, project.root)
     return run.run(full_cmd, project.root)
@@ -194,6 +203,28 @@ def _run_step(
 #: Steps that always run regardless of other failures (tee'd to log when --log).
 #: "descriptions" is in-process but still a quality gate, not a post-quality step.
 _QUALITY_STEPS = {"format-check", "lint", "typecheck", "descriptions"}
+
+
+def _changed_source_paths(project: Project, against: str) -> list[str]:
+    """Return changed source files (vs *against*) matching the descriptions include filter.
+
+    Reuses ``project.descriptions.include`` (default ``.py``/``.pyx``) as the
+    definition of "source file the quality tools handle", so non-source changes
+    (``.md``, ``.toml``) are not handed to ruff/mypy.
+
+    Args:
+        project: The loaded project (provides the root and include patterns).
+        against: The git ref to diff against.
+
+    Returns:
+        Repo-relative source paths that changed and still exist.
+    """
+    assert project.root is not None
+    includes = [re.compile(p) for p in project.descriptions.include]
+    files = repo.changed_files(project.root, against)
+    if not includes:
+        return files
+    return [f for f in files if any(pat.search(f) for pat in includes)]
 
 
 def check(
@@ -217,11 +248,31 @@ def check(
         "--log",
         help="Tee each quality step's output to a log file (default: inline only).",
     ),
+    json_output: bool = typer.Option(
+        False,
+        "--json",
+        help="Emit a machine-readable per-step result (implies quality-only unless --test).",
+    ),
+    changed: bool = typer.Option(
+        False,
+        "--changed",
+        help="Scope to source files changed vs --against (default HEAD) instead of paths.",
+    ),
+    against: str = typer.Option(
+        "HEAD",
+        "--against",
+        help="Git ref --changed diffs against (e.g. HEAD, main).",
+    ),
+    with_test: bool = typer.Option(
+        False,
+        "--test",
+        help="Run the whole-suite test step even when scoped to paths/--changed/--json.",
+    ),
     paths: list[str] | None = typer.Argument(
         None,
         help=(
             "Specific files or directories to scope quality steps to "
-            "(default: whole project). The test step always runs its full suite."
+            "(default: whole project). Path-scoped checks are quality-only unless --test."
         ),
     ),
 ) -> None:
@@ -237,44 +288,90 @@ def check(
     ``--fail-fast`` stops at the first failure (any step).
     ``--fix`` applies format and lint autofixes in-place before checking.
     ``--log`` tee's each quality step to a log file (useful for CI artifacts).
+    ``--changed [--against <ref>]`` scopes to source files changed vs a ref.
+    ``--json`` emits a machine-readable result (one object) for orchestration.
     Optional positional *paths* scope quality steps to specific files/directories —
     requires **target-less quality cmds** in ``.pyclawd/config.py`` (e.g.
     ``["ruff", "check"]`` not ``["ruff", "check", "src"]``); the tool then reads
     its own target from ``pyproject.toml`` config when no paths are given.
+
+    Path-scoped runs (positional *paths*, ``--changed``, or ``--json``) are
+    **quality-only** by default — the whole-suite ``test`` step never scopes to a
+    file, so it is dropped unless ``--test`` is given.
     """
     project = run.load_project_or_exit()
     quality = _quality_or_exit(project)
+
+    resolved_paths = list(paths or [])
+    if changed:
+        changed_paths = _changed_source_paths(project, against)
+        if not changed_paths:
+            if json_output:
+                typer.echo(_json.dumps({"passed": True, "scoped": True, "paths": [], "steps": []}))
+            else:
+                typer.secho("check: no changed source files — nothing to do.", fg="green")
+            raise typer.Exit(0)
+        resolved_paths.extend(changed_paths)
+
+    scoped = bool(resolved_paths)
+    # A path-scoped or --json run is quality-only (test never scopes to a file)
+    # unless --test forces the whole suite.
+    quality_only = (scoped or json_output) and not with_test
+
     skip_set = set(skip or [])
-    sequence = [v for v in quality.check_sequence if v not in skip_set]
+    auto_skipped: set[str] = set()
+    if quality_only and "test" in quality.check_sequence and "test" not in skip_set:
+        auto_skipped.add("test")
+    sequence = [v for v in quality.check_sequence if v not in skip_set and v not in auto_skipped]
 
-    log_dir = category_dir("check", project) if save_logs else None
-    rid = run_id() if save_logs else ""
+    # --json captures step output to logs so stdout carries only the JSON.
+    want_logs = save_logs or json_output
+    log_dir = category_dir("check", project) if want_logs else None
+    rid = run_id() if want_logs else ""
 
-    # (verb, exit_code | None-if-skipped, log_path | None)
-    results: list[tuple[str, int | None, Path | None]] = []
+    # (verb, exit_code | None-if-skipped, log_path | None, reason-if-skipped)
+    results: list[tuple[str, int | None, Path | None, str]] = []
     quality_failed = False
 
     for verb in sequence:
         if verb not in _QUALITY_STEPS and quality_failed:
-            results.append((verb, None, None))
+            results.append((verb, None, None, "quality-failed"))
             continue
 
-        typer.secho(f"\n── check: {verb} ───────────────────────────────", fg="cyan")
+        if not json_output:
+            typer.secho(f"\n── check: {verb} ───────────────────────────────", fg="cyan")
         step_log: Path | None = None
-        if save_logs and log_dir is not None and verb in _QUALITY_STEPS:
+        if want_logs and log_dir is not None and verb in _QUALITY_STEPS:
             step_log = log_dir / f"{rid}-{verb}.log"
-        rc = _run_step(verb, project, quality, fix=fix, log=step_log, paths=paths)
-        results.append((verb, rc, step_log if rc != 0 else None))
+        rc = _run_step(
+            verb, project, quality, fix=fix, log=step_log, paths=resolved_paths, quiet=json_output
+        )
+        results.append((verb, rc, step_log if rc != 0 else None, ""))
         if rc != 0:
             if fail_fast:
                 break
             if verb in _QUALITY_STEPS:
                 quality_failed = True
 
+    if json_output:
+        _emit_json(quality, results, skip_set, auto_skipped, fail_fast, resolved_paths, scoped)
+        return
+    _emit_human(quality, results, skip_set, auto_skipped, fail_fast, fix)
+
+
+def _emit_human(
+    quality: QualityConfig,
+    results: list[tuple[str, int | None, Path | None, str]],
+    skip_set: set[str],
+    auto_skipped: set[str],
+    fail_fast: bool,
+    fix: bool,
+) -> None:
+    """Render the human ✓/✗ summary and raise ``typer.Exit`` with the gate's code."""
     typer.echo("\ncheck summary:")
     any_failed = False
-    ran_verbs = {v for v, _, _ in results}
-    for step_verb, step_rc, step_log in results:
+    ran_verbs = {v for v, _, _, _ in results}
+    for step_verb, step_rc, step_log, _reason in results:
         if step_rc is None:
             typer.secho(f"  ·  {step_verb}  (skipped — fix quality first)", fg="bright_black")
         elif step_rc == 0:
@@ -286,17 +383,70 @@ def check(
     for verb in quality.check_sequence:
         if verb in skip_set:
             typer.secho(f"  ·  {verb}  (--skip)", fg="bright_black")
+        elif verb in auto_skipped:
+            typer.secho(f"  ·  {verb}  (quality-only — pass --test to include)", fg="bright_black")
         elif fail_fast and verb not in ran_verbs:
             typer.secho(f"  ·  {verb}  (skipped — fail-fast)", fg="bright_black")
 
     if any_failed:
-        failed_verbs = {v for v, r, _ in results if r is not None and r != 0}
+        failed_verbs = {v for v, r, _, _ in results if r is not None and r != 0}
         if {"format-check", "lint"} & failed_verbs and not fix:
             typer.secho("\n  hint: run `pyclawd check --fix` to apply autofixes.", fg="yellow")
         typer.secho("\n❌ check FAILED", fg="red")
         raise typer.Exit(1)
     typer.secho("\n✅ check PASSED — all steps green", fg="green")
     raise typer.Exit(0)
+
+
+def _emit_json(
+    quality: QualityConfig,
+    results: list[tuple[str, int | None, Path | None, str]],
+    skip_set: set[str],
+    auto_skipped: set[str],
+    fail_fast: bool,
+    paths: list[str],
+    scoped: bool,
+) -> None:
+    """Emit one JSON object describing every step, then raise ``typer.Exit``.
+
+    The schema is ``{"passed", "scoped", "paths", "steps": [{"verb", "status",
+    "exit_code", "log", "reason"}]}`` where ``status`` is ``ok``/``fail``/``skipped``.
+    An orchestrator branches on ``passed`` and per-step ``status`` without parsing
+    human text.
+    """
+    ran = {v for v, _, _, _ in results}
+    steps: list[dict[str, object]] = []
+    any_failed = False
+    for verb, rc, log, reason in results:
+        if rc is None:
+            steps.append({"verb": verb, "status": "skipped", "exit_code": None, "reason": reason})
+        elif rc == 0:
+            steps.append({"verb": verb, "status": "ok", "exit_code": 0})
+        else:
+            any_failed = True
+            steps.append(
+                {
+                    "verb": verb,
+                    "status": "fail",
+                    "exit_code": rc,
+                    "log": str(log) if log else None,
+                }
+            )
+    for verb in quality.check_sequence:
+        if verb in ran:
+            continue
+        reason = (
+            "skip-flag"
+            if verb in skip_set
+            else "quality-only"
+            if verb in auto_skipped
+            else ("fail-fast" if fail_fast else "not-run")
+        )
+        steps.append({"verb": verb, "status": "skipped", "exit_code": None, "reason": reason})
+
+    payload = {"passed": not any_failed, "scoped": scoped, "paths": paths, "steps": steps}
+    typer.echo(_json.dumps(payload))
+    raise typer.Exit(1 if any_failed else 0)
 
 
 def register(app: typer.Typer) -> None:

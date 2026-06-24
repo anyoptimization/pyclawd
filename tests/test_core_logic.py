@@ -14,6 +14,7 @@ Run them (from the repo root) with::
 from __future__ import annotations
 
 import dataclasses
+import json
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
@@ -260,6 +261,27 @@ def test_lint_exits_2_when_specific_cmd_empty(monkeypatch, capsys):
     assert "lint not configured" in capsys.readouterr().err
 
 
+def _check(**overrides):
+    """Call ``quality_cmd.check`` with every flag defaulted, applying *overrides*.
+
+    Keeps these direct-call tests resilient to new ``check()`` parameters — a new
+    flag only needs a default added here, not a change at every call site.
+    """
+    kwargs = {
+        "fix": False,
+        "skip": None,
+        "fail_fast": False,
+        "save_logs": False,
+        "json_output": False,
+        "changed": False,
+        "against": "HEAD",
+        "with_test": False,
+        "paths": None,
+    }
+    kwargs.update(overrides)
+    return quality_cmd.check(**kwargs)
+
+
 def test_check_runs_all_quality_steps_and_passes(monkeypatch):
     calls: list[str] = []
     q = QualityConfig(
@@ -274,7 +296,7 @@ def test_check_runs_all_quality_steps_and_passes(monkeypatch):
     monkeypatch.setattr(quality_cmd.run, "run", lambda cmd, root: (calls.append(cmd[0]), 0)[1])
 
     with pytest.raises(typer.Exit) as exc:
-        quality_cmd.check(fix=False, skip=None, fail_fast=False, save_logs=False, paths=None)
+        _check()
     assert exc.value.exit_code == 0
     assert calls == ["ruff", "ruff", "mypy"]  # format-check, lint, typecheck — all ran
 
@@ -298,10 +320,178 @@ def test_check_runs_all_quality_steps_then_skips_test_on_failure(monkeypatch):
     # save_logs=False → run.run() is called, not _tee — patch the right function.
     monkeypatch.setattr(quality_cmd.run, "run", fake_run)
     with pytest.raises(typer.Exit) as exc:
-        quality_cmd.check(fix=False, skip=None, fail_fast=False, save_logs=False, paths=None)
+        _check()
     assert exc.value.exit_code == 1
     # All three quality steps ran (format-check, lint, typecheck); test was skipped.
     assert ran == ["ruff", "ruff", "mypy"]
+
+
+def test_check_skip_omits_step(monkeypatch):
+    """``--skip typecheck`` drops that step from the sequence."""
+    ran: list[str] = []
+    q = QualityConfig(
+        format_check_cmd=["ruff", "format", "--check"],
+        lint_cmd=["ruff", "check"],
+        typecheck_cmd=["mypy", "src"],
+        check_sequence=["format-check", "lint", "typecheck"],
+    )
+    p = _project(root=Path("/tmp/repo"), quality=q)
+    monkeypatch.setattr(quality_cmd.run, "load_project_or_exit", lambda: p)
+    monkeypatch.setattr(quality_cmd.run, "run", lambda cmd, root: (ran.append(cmd[0]), 0)[1])
+    with pytest.raises(typer.Exit) as exc:
+        _check(skip=["typecheck"])
+    assert exc.value.exit_code == 0
+    assert ran == ["ruff", "ruff"]  # mypy step omitted
+
+
+def test_check_fail_fast_stops_at_first_failure(monkeypatch):
+    """``--fail-fast`` stops after the first failing step."""
+    ran: list[str] = []
+    q = QualityConfig(
+        format_check_cmd=["ruff", "format", "--check"],
+        lint_cmd=["ruff", "check"],
+        typecheck_cmd=["mypy", "src"],
+        check_sequence=["format-check", "lint", "typecheck"],
+    )
+    p = _project(root=Path("/tmp/repo"), quality=q)
+    monkeypatch.setattr(quality_cmd.run, "load_project_or_exit", lambda: p)
+    # format-check fails first.
+    monkeypatch.setattr(quality_cmd.run, "run", lambda cmd, root: (ran.append(cmd[0]), 1)[1])
+    with pytest.raises(typer.Exit) as exc:
+        _check(fail_fast=True)
+    assert exc.value.exit_code == 1
+    assert ran == ["ruff"]  # stopped after the first (format-check) failure
+
+
+def test_check_fix_uses_fix_commands(monkeypatch):
+    """``--fix`` routes format/lint steps to the write-in-place variants."""
+    captured: list[list[str]] = []
+    q = QualityConfig(
+        format_check_cmd=["ruff", "format", "--check"],
+        format_cmd=["ruff", "format"],
+        lint_cmd=["ruff", "check"],
+        lint_fix_cmd=["ruff", "check", "--fix"],
+        typecheck_cmd=["mypy"],
+        check_sequence=["format-check", "lint", "typecheck"],
+    )
+    p = _project(root=Path("/tmp/repo"), quality=q)
+    monkeypatch.setattr(quality_cmd.run, "load_project_or_exit", lambda: p)
+    monkeypatch.setattr(quality_cmd.run, "run", lambda cmd, root: (captured.append(cmd), 0)[1])
+    with pytest.raises(typer.Exit) as exc:
+        _check(fix=True)
+    assert exc.value.exit_code == 0
+    assert ["ruff", "format"] in captured  # format_cmd, not format_check_cmd
+    assert ["ruff", "check", "--fix"] in captured  # lint_fix_cmd, not lint_cmd
+
+
+def test_check_paths_are_quality_only_by_default(monkeypatch):
+    """Path-scoped check drops the whole-suite test step unless --test is given."""
+    ran_quality: list[str] = []
+    test_ran: list[bool] = []
+    q = QualityConfig(
+        format_check_cmd=["ruff", "format", "--check"],
+        lint_cmd=["ruff", "check"],
+        typecheck_cmd=["mypy"],
+        check_sequence=["format-check", "lint", "typecheck", "test"],
+    )
+    p = _project(root=Path("/tmp/repo"), quality=q)
+    monkeypatch.setattr(quality_cmd.run, "load_project_or_exit", lambda: p)
+    monkeypatch.setattr(
+        quality_cmd.run, "run", lambda cmd, root: (ran_quality.append(cmd[0]), 0)[1]
+    )
+    monkeypatch.setattr(
+        quality_cmd.tests, "run_suite", lambda *a, **k: (test_ran.append(True), 0)[1]
+    )
+    with pytest.raises(typer.Exit) as exc:
+        _check(paths=["src/foo.py"])
+    assert exc.value.exit_code == 0
+    assert ran_quality == ["ruff", "ruff", "mypy"]
+    assert test_ran == []  # test auto-skipped when path-scoped
+
+
+def test_check_paths_with_test_flag_runs_suite(monkeypatch):
+    """--test forces the whole-suite test step back on even when path-scoped."""
+    test_ran: list[bool] = []
+    q = QualityConfig(
+        lint_cmd=["ruff", "check"],
+        format_check_cmd=["ruff", "format", "--check"],
+        typecheck_cmd=["mypy"],
+        check_sequence=["format-check", "lint", "typecheck", "test"],
+    )
+    p = _project(root=Path("/tmp/repo"), quality=q)
+    monkeypatch.setattr(quality_cmd.run, "load_project_or_exit", lambda: p)
+    monkeypatch.setattr(quality_cmd.run, "run", lambda cmd, root: 0)
+    monkeypatch.setattr(
+        quality_cmd.tests, "run_suite", lambda *a, **k: (test_ran.append(True), 0)[1]
+    )
+    with pytest.raises(typer.Exit):
+        _check(paths=["src/foo.py"], with_test=True)
+    assert test_ran == [True]
+
+
+def test_check_json_emits_machine_readable(monkeypatch, capsys):
+    """--json prints one parseable object with per-step status and is quality-only."""
+    q = QualityConfig(
+        format_check_cmd=["ruff", "format", "--check"],
+        lint_cmd=["ruff", "check"],
+        typecheck_cmd=["mypy"],
+        check_sequence=["format-check", "lint", "typecheck", "test"],
+    )
+    p = _project(root=Path("/tmp/repo"), quality=q)
+    monkeypatch.setattr(quality_cmd.run, "load_project_or_exit", lambda: p)
+    # --json routes quality steps through run_logged; lint fails.
+    monkeypatch.setattr(
+        quality_cmd,
+        "_run_logged",
+        lambda cmd, log, root: 1 if cmd[:2] == ["ruff", "check"] else 0,
+    )
+    with pytest.raises(typer.Exit) as exc:
+        _check(json_output=True)
+    assert exc.value.exit_code == 1
+    payload = json.loads(capsys.readouterr().out.strip().splitlines()[-1])
+    assert payload["passed"] is False
+    steps = {s["verb"]: s for s in payload["steps"]}
+    assert steps["format-check"]["status"] == "ok"
+    assert steps["lint"]["status"] == "fail"
+    assert steps["lint"]["exit_code"] == 1
+    assert steps["test"]["status"] == "skipped"  # --json is quality-only
+    assert steps["test"]["reason"] == "quality-only"
+
+
+def test_check_changed_scopes_to_git_source_files(monkeypatch):
+    """--changed feeds git-changed source files (only .py/.pyx) as paths, quality-only."""
+    captured: list[list[str]] = []
+    q = QualityConfig(
+        format_check_cmd=["ruff", "format", "--check"],
+        lint_cmd=["ruff", "check"],
+        typecheck_cmd=["mypy"],
+        check_sequence=["format-check", "lint", "typecheck", "test"],
+    )
+    p = _project(root=Path("/tmp/repo"), quality=q)
+    monkeypatch.setattr(quality_cmd.run, "load_project_or_exit", lambda: p)
+    monkeypatch.setattr(
+        quality_cmd.repo,
+        "changed_files",
+        lambda root, against: ["src/a.py", "README.md", "src/b.pyx"],
+    )
+    monkeypatch.setattr(quality_cmd.run, "run", lambda cmd, root: (captured.append(cmd), 0)[1])
+    with pytest.raises(typer.Exit) as exc:
+        _check(changed=True)
+    assert exc.value.exit_code == 0
+    # README.md filtered out by the descriptions include (.py/.pyx); test step skipped.
+    assert captured[0] == ["ruff", "format", "--check", "src/a.py", "src/b.pyx"]
+
+
+def test_check_changed_no_files_exits_0(monkeypatch, capsys):
+    """--changed with nothing changed reports cleanly and exits 0."""
+    q = QualityConfig(lint_cmd=["ruff", "check"], check_sequence=["lint"])
+    p = _project(root=Path("/tmp/repo"), quality=q)
+    monkeypatch.setattr(quality_cmd.run, "load_project_or_exit", lambda: p)
+    monkeypatch.setattr(quality_cmd.repo, "changed_files", lambda root, against: [])
+    with pytest.raises(typer.Exit) as exc:
+        _check(changed=True)
+    assert exc.value.exit_code == 0
+    assert "no changed source files" in capsys.readouterr().out
 
 
 def test_lint_appends_paths_to_cmd(monkeypatch):
@@ -348,9 +538,7 @@ def test_check_propagates_paths_to_quality_steps(monkeypatch):
         lambda cmd, root: (captured_cmds.append(cmd), 0)[1],
     )
     with pytest.raises(typer.Exit) as exc:
-        quality_cmd.check(
-            fix=False, skip=None, fail_fast=False, save_logs=False, paths=["src/mypkg/foo.py"]
-        )
+        _check(paths=["src/mypkg/foo.py"])
     assert exc.value.exit_code == 0
     assert captured_cmds == [
         ["ruff", "format", "--check", "src/mypkg/foo.py"],
