@@ -299,8 +299,8 @@ def _descriptions_filter(rel: str, project: Project) -> bool:
     Applies ``project.descriptions_include`` (must match ≥1) then
     ``project.descriptions_exclude`` (skip if any matches).
     """
-    includes = [re.compile(p) for p in project.descriptions_include]
-    excludes = [re.compile(p) for p in project.descriptions_exclude]
+    includes = [re.compile(p) for p in project.descriptions.include]
+    excludes = [re.compile(p) for p in project.descriptions.exclude]
     if includes and not any(pat.search(rel) for pat in includes):
         return False
     return not any(pat.search(rel) for pat in excludes)

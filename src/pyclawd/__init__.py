@@ -5,8 +5,8 @@ configuration file (``.pyclawd/config.py``). The public API exposes the
 configuration model and loader so adopting projects can describe themselves:
 
 - :class:`Project` and the nested :class:`DocsConfig`, :class:`TestConfig`,
-  :class:`DoctorConfig`, :class:`QualityConfig`, and :class:`CoverageConfig`
-  config groups.
+  :class:`DoctorConfig`, :class:`QualityConfig`, :class:`CoverageConfig`, and
+  :class:`DescriptionConfig` config groups.
 - :func:`load_project` / :func:`find_config_file` to discover and load a project.
 - :class:`Check` and the :data:`OK` / :data:`WARN` / :data:`FAIL` status
   constants used by the ``doctor`` health-check hook.
@@ -24,6 +24,7 @@ from .project import (
     WARN,
     Check,
     CoverageConfig,
+    DescriptionConfig,
     DocsConfig,
     DoctorConfig,
     Project,
@@ -41,6 +42,7 @@ __all__ = [
     "DoctorConfig",
     "QualityConfig",
     "CoverageConfig",
+    "DescriptionConfig",
     "Check",
     "OK",
     "WARN",

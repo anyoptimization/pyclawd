@@ -187,31 +187,42 @@ The summary is always printed:
 
 #### Prerequisite for `pyclawd check <file>` to work correctly
 
-Quality cmds in `.pyclawd/config.py` must be **target-less** — pyclawd appends
-the path argument, so the tool must not already have a target baked in:
+Quality cmds must be **target-less** — pyclawd appends the path, so no target
+baked in:
 
 ```python
-# ✓ correct — target-less; tool reads its config (pyproject.toml files/src)
-QualityConfig(
-    lint_cmd=["ruff", "check"],
-    typecheck_cmd=["mypy"],
-)
+QualityConfig(lint_cmd=["ruff", "check"], typecheck_cmd=["mypy"])  # ✓
+QualityConfig(lint_cmd=["ruff", "check", "mypkg"], typecheck_cmd=["mypy", "mypkg"])  # ✗
+```
 
-# ✗ wrong — has a hardcoded target; pyclawd check foo.py → mypy pymoo foo.py
-#            → "Duplicate module" error or full-package scan instead of per-file
-QualityConfig(
-    lint_cmd=["ruff", "check", "pymoo"],
-    typecheck_cmd=["mypy", "pymoo"],
+mypy also needs in `[tool.mypy]`:
+```toml
+explicit_package_bases = true
+mypy_path = "."
+```
+The scaffold template includes both automatically. See `pyclawd-quality` skill for
+the full contract.
+
+#### Descriptions step and `DescriptionConfig`
+
+When `"descriptions"` is in `check_sequence`, `pyclawd check` verifies every
+eligible source file has a one-line top-of-file docstring or `#` comment.
+Configure via `DescriptionConfig` in `.pyclawd/config.py`:
+
+```python
+from pyclawd import Project, DescriptionConfig
+
+project = Project(
+    ...
+    descriptions=DescriptionConfig(
+        include=[r"\.pyx?$"],        # default: Python/Cython only
+        exclude=[r"vendor/"],        # skip vendored Python
+    ),
 )
 ```
 
-With target-less cmds:
-- `pyclawd check` → `ruff check` / `mypy` (tools use their own pyproject config)
-- `pyclawd check src/mypkg/foo.py` → `ruff check src/mypkg/foo.py` / `mypy src/mypkg/foo.py`
-
-Mypy also needs `explicit_package_bases = true` and `mypy_path = "."` in
-`[tool.mypy]` to avoid "Duplicate module" when a single source file is passed by
-path — the scaffold template includes these automatically.
+Default (`DescriptionConfig()` with no args): only `.py`/`.pyx` files, nothing
+excluded. Fortran, C, data files are never checked by default.
 
 ### Ruff (lint + format)
 

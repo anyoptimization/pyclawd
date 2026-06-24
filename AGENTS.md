@@ -46,7 +46,7 @@ pyclawd ships a project-agnostic command layer. Everything project-specific live
 - **`.pyclawd/config.py`** — defines a module-level `project = Project(...)` (from `pyclawd import Project`). The directory containing `.pyclawd/` **is** the repo root.
 - The `Project` model groups config: `QualityConfig` (lint/format/typecheck/check argv), `TestConfig` (tests dir + tier markers), `DocsConfig` (docs toolchain, or `None`), `DoctorConfig` (deps/binaries/tool-files to probe). Unset groups disable their commands cleanly.
 - To inspect a project's setup, read its `.pyclawd/config.py` — it is the single source of truth for env, paths, markers, and checks.
-- **Every module opens with a one-line docstring** (PEP 257). `pyclawd ls` surfaces the code map; `pyclawd ls --missing` finds gaps. Keep `pyclawd ls --missing` empty.
+- **Every module opens with a one-line docstring** (PEP 257). `pyclawd ls` surfaces the code map; `pyclawd ls --missing` finds gaps. Keep `pyclawd ls --missing` empty. Which files are checked is controlled by `DescriptionConfig(include=[...], exclude=[...])` on `Project` — default is `.py`/`.pyx` only, nothing excluded.
 - **Docstrings use Google style, no types** — type annotations are the source of truth (mypy), docstrings add the *why/what*. `pyclawd lint` enforces this via `D` + `DOC` ruff rules (tests are exempt). Pattern: `Args:` / `Returns:` / `Raises:` sections with plain descriptions, no type repetition. NumPy-style (`Parameters\n----------`) is wrong and will fail lint.
 
 > **Before writing any docstring:** read `pyproject.toml` to check what

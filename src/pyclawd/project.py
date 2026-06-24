@@ -242,6 +242,31 @@ class CoverageConfig:
 
 
 @dataclass(frozen=True)
+class DescriptionConfig:
+    r"""File-description checking settings (``pyclawd ls --missing`` / ``"descriptions"`` step).
+
+    Controls which files the descriptions check considers. Applied by
+    ``check_descriptions`` in :mod:`pyclawd.commands.ls` and the
+    ``"descriptions"`` step in ``pyclawd check`` when it appears in
+    ``quality.check_sequence``.
+
+    Args:
+        include: Regex patterns (``re.search``) matched against each file's
+            repo-relative path. A file is checked only when it matches **at
+            least one** pattern. Defaults to ``[r"\.pyx?$"]`` — Python and
+            Cython source only. To add extension types:
+            ``[r"\.pyx?$", r"\.pxd$"]``.
+        exclude: Regex patterns (``re.search``) matched against each file's
+            repo-relative path. A file is skipped when it matches **any**
+            pattern. Defaults to ``[]``. Use to exclude vendored or generated
+            Python, e.g. ``[r"vendor/", r"_generated/"]``.
+    """
+
+    include: list[str] = field(default_factory=lambda: [r"\.pyx?$"])
+    exclude: list[str] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
 class DoctorConfig:
     r"""Health-check settings for ``pyclawd doctor``.
 
@@ -343,16 +368,11 @@ class Project:
     src_dir : str, optional
         Default directory ``pyclawd ls`` lists (the code/source root), relative to
         the repo root. Defaults to ``src``.
-    descriptions_include : list of str, optional
-        Regex patterns (``re.search``) applied to each file's repo-relative path.
-        A file is eligible for description checking only when it matches **at least
-        one** pattern. Defaults to ``[r"\\.pyx?$"]`` (Python and Cython source only).
-        Override to add other file types, e.g. ``[r"\\.pyx?$", r"\\.pxd$"]``.
-    descriptions_exclude : list of str, optional
-        Regex patterns (``re.search``) applied to each file's repo-relative path.
-        A file is skipped when it matches **any** pattern. Defaults to ``[]``.
-        Use this to exclude vendored Python, generated code, etc., e.g.
-        ``[r"vendor/", r"_generated/"]``.
+    descriptions : DescriptionConfig, optional
+        Controls which files the ``"descriptions"`` step (and ``pyclawd ls
+        --missing``) checks for a top-of-file description. Defaults to
+        ``DescriptionConfig()`` — Python/Cython only, no exclusions. See
+        :class:`DescriptionConfig` for the ``include`` / ``exclude`` regex knobs.
     docs : DocsConfig or None, optional
         Documentation-build settings, or ``None`` (the default) when the project
         has no docs. When ``None`` the ``pyclawd docs`` command group is not even
@@ -391,8 +411,7 @@ class Project:
     clean_ext_globs: list[str] = field(default_factory=list)
 
     src_dir: str = "src"
-    descriptions_include: list[str] = field(default_factory=lambda: [r"\.pyx?$"])
-    descriptions_exclude: list[str] = field(default_factory=list)
+    descriptions: DescriptionConfig = field(default_factory=DescriptionConfig)
 
     docs: DocsConfig | None = None
     quality: QualityConfig | None = None
