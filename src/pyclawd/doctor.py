@@ -269,6 +269,75 @@ def _check_golden(project: Project) -> list[Check]:
     return checks
 
 
+def _check_quality_targets(project: Project) -> list[Check]:
+    """Warn when a quality command hardcodes a target path, breaking single-file scoping.
+
+    ``pyclawd check <file>`` scopes the gate to one file by *appending* the path to
+    each configured quality command. That only works when the commands are
+    *target-less* (e.g. ``["mypy"]``, ``["ruff", "check"]``) so each tool reads its
+    own default scope from ``pyproject.toml``. A command that hardcodes a target
+    (e.g. ``["mypy", "pymoo"]`` or ``["ruff", "check", "src"]``) turns
+    ``pyclawd check foo.py`` into ``mypy pymoo foo.py`` (duplicate-module error) or
+    ``ruff check src foo.py`` (scans the whole package) — a confusing silent failure.
+
+    The heuristic is deliberately low-false-positive: for each command, skip the
+    tool name at index 0 and inspect the remaining positional tokens (those not
+    starting with ``-``); a token is a hardcoded target only when it resolves to an
+    existing path under the repo root. So ``["ruff", "check", "src"]`` flags (``src/``
+    exists) while ``["ruff", "check"]`` does not (``check`` is not a path).
+
+    Args:
+        project: The loaded project config.
+
+    Returns:
+        Zero rows when quality is unconfigured; a single WARN if the repo root is
+        unknown (targets cannot be verified); one WARN per offending command;
+        otherwise a single OK row confirming all commands are target-less.
+    """
+    if project.quality is None:
+        return []
+    if project.root is None:
+        return [
+            Check(
+                WARN,
+                "quality targets",
+                "repo root unknown — cannot verify quality command targets",
+            )
+        ]
+
+    q = project.quality
+    commands = [
+        ("lint_cmd", q.lint_cmd),
+        ("lint_fix_cmd", q.lint_fix_cmd),
+        ("format_cmd", q.format_cmd),
+        ("format_check_cmd", q.format_check_cmd),
+        ("typecheck_cmd", q.typecheck_cmd),
+    ]
+
+    checks: list[Check] = []
+    for label, cmd in commands:
+        if not cmd:
+            continue
+        for token in cmd[1:]:
+            if token.startswith("-"):
+                continue
+            if project.path(token).exists():
+                checks.append(
+                    Check(
+                        WARN,
+                        "quality targets",
+                        f"{label} {cmd!r} hardcodes target {token!r} — make it target-less so "
+                        "`pyclawd check <file>` can scope to one file "
+                        "(let pyproject.toml set the default scope)",
+                    )
+                )
+                break
+
+    if not checks:
+        return [Check(OK, "quality targets", "all quality commands are target-less")]
+    return checks
+
+
 def _check_skills() -> Check | None:
     """WARN when user-scope pyclawd skills have drifted from the running pyclawd.
 
@@ -359,6 +428,7 @@ def collect(project: Project | None = None) -> list[Check]:
     checks += [_check_binary(name, hint) for name, hint in project.doctor.binaries]
     checks += _check_docs(project)
     checks += _check_golden(project)
+    checks += _check_quality_targets(project)
     skills_check = _check_skills()
     if skills_check is not None:
         checks.append(skills_check)

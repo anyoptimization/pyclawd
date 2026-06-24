@@ -20,6 +20,7 @@ from pyclawd.project import (
     DoctorConfig,
     GoldenConfig,
     Project,
+    QualityConfig,
     TestConfig,
 )
 
@@ -231,6 +232,56 @@ def test_check_golden_warns_when_root_unknown():
     rows = {c.name: c for c in doctor._check_golden(project)}
     assert rows["golden"].status == OK
     assert rows["golden baselines"].status == WARN
+
+
+# ---- quality-target check ---------------------------------------------------
+
+
+def test_check_quality_targets_empty_when_unconfigured():
+    assert doctor._check_quality_targets(_project()) == []  # quality is None → no rows
+
+
+def test_check_quality_targets_ok_when_all_target_less(tmp_path):
+    quality = QualityConfig(
+        lint_cmd=["ruff", "check"],
+        lint_fix_cmd=["ruff", "check", "--fix"],
+        format_cmd=["ruff", "format"],
+        format_check_cmd=["ruff", "format", "--check"],
+        typecheck_cmd=["mypy"],
+    )
+    project = _project(quality=quality, root=tmp_path)
+    rows = {c.name: c for c in doctor._check_quality_targets(project)}
+    assert rows["quality targets"].status == OK
+    assert "target-less" in rows["quality targets"].detail
+
+
+def test_check_quality_targets_warns_on_hardcoded_path(tmp_path):
+    (tmp_path / "pkg").mkdir()
+    quality = QualityConfig(typecheck_cmd=["mypy", "pkg"])
+    project = _project(quality=quality, root=tmp_path)
+    rows = list(doctor._check_quality_targets(project))
+    assert len(rows) == 1
+    assert rows[0].status == WARN
+    assert rows[0].name == "quality targets"
+    assert "typecheck_cmd" in rows[0].detail
+    assert "'pkg'" in rows[0].detail
+
+
+def test_check_quality_targets_does_not_flag_non_path_token(tmp_path):
+    # "check" is a subcommand, not an existing path → not flagged.
+    quality = QualityConfig(lint_cmd=["ruff", "check"])
+    project = _project(quality=quality, root=tmp_path)
+    rows = {c.name: c for c in doctor._check_quality_targets(project)}
+    assert rows["quality targets"].status == OK
+
+
+def test_check_quality_targets_warns_when_root_unknown():
+    quality = QualityConfig(typecheck_cmd=["mypy", "src"])
+    project = _project(quality=quality, root=None)
+    rows = doctor._check_quality_targets(project)
+    assert len(rows) == 1
+    assert rows[0].status == WARN
+    assert "repo root unknown" in rows[0].detail
 
 
 # ---- dump_json --------------------------------------------------------------
