@@ -14,6 +14,7 @@ Run them (from the repo root) with::
 from __future__ import annotations
 
 import dataclasses
+import xml.etree.ElementTree as ET
 from pathlib import Path
 
 import pytest
@@ -236,7 +237,7 @@ def test_test_config_jobs_defaults_to_auto():
 
 
 # --------------------------------------------------------------------------- #
-# quality command layer — unconfigured self-report + check fail-fast.
+# quality command layer — unconfigured self-report + check run-all behaviour.
 # --------------------------------------------------------------------------- #
 
 
@@ -259,7 +260,7 @@ def test_lint_exits_2_when_specific_cmd_empty(monkeypatch, capsys):
     assert "lint not configured" in capsys.readouterr().err
 
 
-def test_check_runs_sequence_in_order_and_passes(monkeypatch):
+def test_check_runs_all_quality_steps_and_passes(monkeypatch):
     calls: list[str] = []
     q = QualityConfig(
         format_check_cmd=["ruff", "format", "--check"],
@@ -269,17 +270,67 @@ def test_check_runs_sequence_in_order_and_passes(monkeypatch):
     )
     p = _project(root=Path("/tmp/repo"), quality=q)
     monkeypatch.setattr(quality_cmd.run, "load_project_or_exit", lambda: p)
-    monkeypatch.setattr(quality_cmd.run, "run", lambda cmd, root: (calls.append(cmd[0]), 0)[1])
+    monkeypatch.setattr(quality_cmd, "_tee", lambda cmd, log, root: (calls.append(cmd[0]), 0)[1])
 
     with pytest.raises(typer.Exit) as exc:
-        quality_cmd.check()
+        quality_cmd.check(fix=False, skip=None, fail_fast=False, paths=None)
     assert exc.value.exit_code == 0
-    assert calls == ["ruff", "ruff", "mypy"]  # format-check, lint, typecheck — in order
+    assert calls == ["ruff", "ruff", "mypy"]  # format-check, lint, typecheck — all ran
 
 
-def test_check_is_fail_fast(monkeypatch):
-    """A failing step stops the sequence — later steps never run."""
+def test_check_runs_all_quality_steps_then_skips_test_on_failure(monkeypatch):
+    """All quality steps run even when one fails; the test step is skipped."""
     ran: list[str] = []
+    q = QualityConfig(
+        format_check_cmd=["ruff", "format", "--check"],
+        lint_cmd=["ruff", "check"],
+        typecheck_cmd=["mypy", "src"],
+        check_sequence=["format-check", "lint", "typecheck", "test"],
+    )
+    p = _project(root=Path("/tmp/repo"), quality=q)
+    monkeypatch.setattr(quality_cmd.run, "load_project_or_exit", lambda: p)
+
+    def fake_tee(cmd, log, root):
+        ran.append(cmd[0])
+        return 1 if cmd[:2] == ["ruff", "check"] else 0  # lint fails
+
+    monkeypatch.setattr(quality_cmd, "_tee", fake_tee)
+    with pytest.raises(typer.Exit) as exc:
+        quality_cmd.check(fix=False, skip=None, fail_fast=False, paths=None)
+    assert exc.value.exit_code == 1
+    # All three quality steps ran (format-check, lint, typecheck); test was skipped.
+    assert ran == ["ruff", "ruff", "mypy"]
+
+
+def test_lint_appends_paths_to_cmd(monkeypatch):
+    """Paths passed to lint are appended to the configured lint_cmd."""
+    captured: list[list[str]] = []
+    q = QualityConfig(lint_cmd=["ruff", "check"])
+    p = _project(root=Path("/tmp/repo"), quality=q)
+    monkeypatch.setattr(quality_cmd.run, "load_project_or_exit", lambda: p)
+    monkeypatch.setattr(quality_cmd.run, "run", lambda cmd, root: (captured.append(cmd), 0)[1])
+    with pytest.raises(typer.Exit) as exc:
+        quality_cmd.lint(fix=False, paths=["src/mypkg/foo.py"])
+    assert exc.value.exit_code == 0
+    assert captured == [["ruff", "check", "src/mypkg/foo.py"]]
+
+
+def test_typecheck_appends_paths_to_cmd(monkeypatch):
+    """Paths passed to typecheck are appended to the configured typecheck_cmd."""
+    captured: list[list[str]] = []
+    q = QualityConfig(typecheck_cmd=["mypy", "src"])
+    p = _project(root=Path("/tmp/repo"), quality=q)
+    monkeypatch.setattr(quality_cmd.run, "load_project_or_exit", lambda: p)
+    monkeypatch.setattr(quality_cmd.run, "run", lambda cmd, root: (captured.append(cmd), 0)[1])
+    with pytest.raises(typer.Exit) as exc:
+        quality_cmd.typecheck(paths=["src/mypkg/bar.py"])
+    assert exc.value.exit_code == 0
+    assert captured == [["mypy", "src", "src/mypkg/bar.py"]]
+
+
+def test_check_propagates_paths_to_quality_steps(monkeypatch):
+    """check() appends paths to each quality-step command; test step ignores paths."""
+    captured_cmds: list[list[str]] = []
     q = QualityConfig(
         format_check_cmd=["ruff", "format", "--check"],
         lint_cmd=["ruff", "check"],
@@ -288,17 +339,19 @@ def test_check_is_fail_fast(monkeypatch):
     )
     p = _project(root=Path("/tmp/repo"), quality=q)
     monkeypatch.setattr(quality_cmd.run, "load_project_or_exit", lambda: p)
-
-    def fake_run(cmd, root):
-        ran.append(cmd[0])
-        return 1 if cmd[:2] == ["ruff", "check"] else 0  # lint fails
-
-    monkeypatch.setattr(quality_cmd.run, "run", fake_run)
+    monkeypatch.setattr(
+        quality_cmd,
+        "_tee",
+        lambda cmd, log, root: (captured_cmds.append(cmd), 0)[1],
+    )
     with pytest.raises(typer.Exit) as exc:
-        quality_cmd.check()
-    assert exc.value.exit_code == 1
-    # format-check ran, lint ran (and failed), typecheck was NOT reached.
-    assert ran == ["ruff", "ruff"]
+        quality_cmd.check(fix=False, skip=None, fail_fast=False, paths=["src/mypkg/foo.py"])
+    assert exc.value.exit_code == 0
+    assert captured_cmds == [
+        ["ruff", "format", "--check", "src/mypkg/foo.py"],
+        ["ruff", "check", "src/mypkg/foo.py"],
+        ["mypy", "src", "src/mypkg/foo.py"],
+    ]
 
 
 # --------------------------------------------------------------------------- #
@@ -360,3 +413,149 @@ def test_set_config_override_roundtrip(tmp_path, monkeypatch):
     finally:
         discovery.set_config_override(None)
     assert discovery._OVERRIDE is None
+
+
+# --------------------------------------------------------------------------- #
+# tests.print_timings — --slow-threshold filtering.
+# --------------------------------------------------------------------------- #
+
+
+def _write_junit(path: Path, testcases: list[tuple[str, str, float]]) -> Path:
+    """Write a minimal junit XML with (classname, name, time) entries."""
+    root_el = ET.Element("testsuite")
+    for classname, name, time_s in testcases:
+        tc = ET.SubElement(root_el, "testcase")
+        tc.set("classname", classname)
+        tc.set("name", name)
+        tc.set("time", str(time_s))
+    ET.ElementTree(root_el).write(str(path))
+    return path
+
+
+def test_print_timings_slow_threshold_filters(tmp_path, monkeypatch, capsys):
+    """Only tests above the threshold appear; the slow-marker hint is printed."""
+    from pyclawd import tests as tests_mod
+
+    junit = _write_junit(
+        tmp_path / "run.junit.xml",
+        [
+            ("tests.test_heavy", "test_expensive", 3.2),
+            ("tests.test_db", "test_query", 1.5),
+            ("tests.test_model", "test_train", 1.1),
+            ("tests.test_fast", "test_quick", 0.3),
+        ],
+    )
+    ptr = tmp_path / "latest-junit.txt"
+    ptr.write_text(str(junit))
+
+    p = _project(root=tmp_path)
+    monkeypatch.setattr(tests_mod, "_junit_ptr", lambda _proj: ptr)
+
+    rc = tests_mod.print_timings(p, slow_threshold=1.0)
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "3 tests over 1.0s" in out
+    assert "consider adding @pytest.mark.slow" in out
+    assert "test_expensive" in out
+    assert "test_query" in out
+    assert "test_train" in out
+    assert "test_quick" not in out
+
+
+def test_print_timings_slow_threshold_no_results(tmp_path, monkeypatch, capsys):
+    """When nothing exceeds the threshold, 'No tests over Xs found.' is printed."""
+    from pyclawd import tests as tests_mod
+
+    junit = _write_junit(
+        tmp_path / "run.junit.xml",
+        [
+            ("tests.test_fast", "test_quick", 0.3),
+            ("tests.test_fast", "test_other", 0.5),
+        ],
+    )
+    ptr = tmp_path / "latest-junit.txt"
+    ptr.write_text(str(junit))
+
+    p = _project(root=tmp_path)
+    monkeypatch.setattr(tests_mod, "_junit_ptr", lambda _proj: ptr)
+
+    rc = tests_mod.print_timings(p, slow_threshold=1.0)
+    assert rc == 0
+    assert "No tests over 1.0s found." in capsys.readouterr().out
+
+
+def test_print_timings_no_threshold_uses_top(tmp_path, monkeypatch, capsys):
+    """Without a threshold, top=N slicing still works as before."""
+    from pyclawd import tests as tests_mod
+
+    junit = _write_junit(
+        tmp_path / "run.junit.xml",
+        [
+            ("tests.test_a", "test_1", 3.0),
+            ("tests.test_b", "test_2", 2.0),
+            ("tests.test_c", "test_3", 1.0),
+        ],
+    )
+    ptr = tmp_path / "latest-junit.txt"
+    ptr.write_text(str(junit))
+
+    p = _project(root=tmp_path)
+    monkeypatch.setattr(tests_mod, "_junit_ptr", lambda _proj: ptr)
+
+    rc = tests_mod.print_timings(p, top=2)
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "3 tests" in out  # header shows the total count
+    assert "test_1" in out
+    assert "test_2" in out
+    assert "test_3" not in out  # top=2 excludes the third
+
+
+def test_dispatch_timings_slow_threshold_space_form(tmp_path, monkeypatch):
+    """dispatch() correctly parses `--slow-threshold 1.5` (space-separated form)."""
+    from pyclawd import tests as tests_mod
+
+    p = _project(root=tmp_path)
+    monkeypatch.setattr(tests_mod, "load_project_or_exit", lambda: p)
+
+    captured: dict[str, object] = {}
+
+    def fake_print_timings(proj: object, top: int = 25, slow_threshold: float | None = None) -> int:
+        captured["top"] = top
+        captured["slow_threshold"] = slow_threshold
+        return 0
+
+    monkeypatch.setattr(tests_mod, "print_timings", fake_print_timings)
+    rc = tests_mod.dispatch("timings", ["--slow-threshold", "1.5"])
+    assert rc == 0
+    assert captured["slow_threshold"] == 1.5
+
+
+def test_dispatch_timings_slow_threshold_equals_form(tmp_path, monkeypatch):
+    """dispatch() correctly parses `--slow-threshold=2.0` (equals form)."""
+    from pyclawd import tests as tests_mod
+
+    p = _project(root=tmp_path)
+    monkeypatch.setattr(tests_mod, "load_project_or_exit", lambda: p)
+
+    captured: dict[str, object] = {}
+
+    def fake_print_timings(proj: object, top: int = 25, slow_threshold: float | None = None) -> int:
+        captured["slow_threshold"] = slow_threshold
+        return 0
+
+    monkeypatch.setattr(tests_mod, "print_timings", fake_print_timings)
+    rc = tests_mod.dispatch("timings", ["--slow-threshold=2.0"])
+    assert rc == 0
+    assert captured["slow_threshold"] == 2.0
+
+
+def test_dispatch_timings_slow_threshold_invalid(tmp_path, monkeypatch, capsys):
+    """dispatch() returns exit code 2 and prints an error for a non-float threshold."""
+    from pyclawd import tests as tests_mod
+
+    p = _project(root=tmp_path)
+    monkeypatch.setattr(tests_mod, "load_project_or_exit", lambda: p)
+    rc = tests_mod.dispatch("timings", ["--slow-threshold", "fast"])
+    assert rc == 2
+    assert "--slow-threshold expects a float" in capsys.readouterr().err

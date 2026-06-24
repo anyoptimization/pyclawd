@@ -42,6 +42,7 @@ def _exit_config_error(exc: ConfigError) -> NoReturn:
 
 
 def repo_root_or_exit() -> Path:
+    """Return the repo root, or exit(2) with a clear error if not inside a project."""
     root = find_repo_root()
     if root is None:
         typer.secho(
@@ -124,13 +125,15 @@ _VALUE_OPTS = {"-k", "-m", "-p", "-c", "--rootdir", "--junit-xml", "-n", "--dura
 
 
 def has_target(args: list[str]) -> bool:
-    """True if *args* contains an explicit test target (a path, file, or nodeid) — so
-    we must NOT also prepend the default ``tests/`` (which would collect the whole suite
-    alongside it).
+    """Return True if *args* contains an explicit test target (a path, file, or nodeid).
+
+    When an explicit target is present we must NOT also prepend the default ``tests/``
+    (which would collect the whole suite alongside it).
 
     The token immediately after a value-taking option (e.g. the expression after
     ``-k``/``-m``) is skipped, so a keyword expression like ``-k "a or b.py"`` is
-    never mistaken for a file path."""
+    never mistaken for a file path.
+    """
     skip = False
     for a in args:
         if skip:
@@ -151,7 +154,8 @@ def pytest(
 
     ``default_markers`` is applied only when the caller did not pass their own ``-m``
     expression. ``tests_dir`` is the default collection target used when *args* names
-    no explicit target; it falls back to the loaded project's ``test.tests_dir``."""
+    no explicit target; it falls back to the loaded project's ``test.tests_dir``.
+    """
     cmd = [*python_prefix(), "-m", "pytest", "-v"]
     if not has_target(args):
         cmd.append(tests_dir or load_project_or_exit().test.tests_dir)

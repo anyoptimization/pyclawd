@@ -42,7 +42,8 @@ def _log_dir(project: Project) -> Path:
 
     Namespacing by the project root keeps ``test timings`` in one repo from ever
     reading another repo's last run (the global pointer used to leak across
-    projects)."""
+    projects).
+    """
     return category_dir("tests", project) / _root_hash(project.root if project.root else Path.cwd())
 
 
@@ -62,16 +63,20 @@ def tier_markers(project: Project, tier: str) -> str:
     plain ``markers[tier]`` would raise an uncaught :class:`KeyError` (a raw
     traceback) the moment someone runs ``pyclawd test fast`` against a config that
     only defines ``default``. Falling back to ``""`` means an undefined tier simply
-    applies no ``-m`` filter — flexible and never crashing."""
+    applies no ``-m`` filter — flexible and never crashing.
+    """
     return project.test.markers.get(tier, "")
 
 
 def _pretty_nodeid(classname: str, name: str, prefix: str, tests_dir: str) -> str:
-    """junit gives dotted classnames (tests.algorithms.test_nsga2); turn that back
-    into the path-ish nodeid (tests/algorithms/test_nsga2.py::name).
+    """Junit gives dotted classnames; turn them back into path-ish nodeids.
+
+    For example, ``tests.algorithms.test_nsga2`` becomes
+    ``tests/algorithms/test_nsga2.py::name``.
 
     *prefix* is the dotted classname prefix and *tests_dir* is the matching
-    root-relative dir, both sourced from the project config."""
+    root-relative dir, both sourced from the project config.
+    """
     if classname.startswith(prefix):
         path = classname[len(prefix) :].replace(".", "/")
         return f"{tests_dir}{path}.py::{name}"
@@ -85,7 +90,8 @@ def _summary_lines(junit: Path, rc: int, project: Project, top: int = 15) -> lis
     """Parse the junit xml and BUILD the timing + failure tables and verdict line.
 
     Returns the report as a list of lines (caller emits to console and/or log) so the
-    structured summary is identical in both places — like the docs run/render logs."""
+    structured summary is identical in both places — like the docs run/render logs.
+    """
     if not junit.exists():
         return [f"\ntests · no junit produced (collection error?) · exit {rc}"]
     prefix, tests_dir = project.test.classname_prefix, project.test.tests_dir
@@ -196,7 +202,8 @@ def print_failures(project: Project) -> int:
 
     A project's integration suites (``TestConfig.integration_files``) are deselected by
     the unit tiers, so their stale cache entries are listed separately (they don't block
-    `pyclawd test fix`)."""
+    `pyclawd test fix`).
+    """
     root = repo_root_or_exit()
     lf = root / ".pytest_cache" / "v" / "cache" / "lastfailed"
     if not lf.exists():
@@ -229,8 +236,13 @@ def print_failures(project: Project) -> int:
     return 1 if unit else 0
 
 
-def print_timings(project: Project, top: int = 25) -> int:
-    """Print slowest tests from the most recent junit (for THIS project only)."""
+def print_timings(project: Project, top: int = 25, slow_threshold: float | None = None) -> int:
+    """Print slowest tests from the most recent junit (for THIS project only).
+
+    When *slow_threshold* is set, only tests taking longer than that many seconds
+    are shown (with a hint to add ``@pytest.mark.slow``), and *top* is ignored.
+    When *slow_threshold* is ``None``, the existing top-N behaviour is used.
+    """
     junit_ptr = _junit_ptr(project)
     if not junit_ptr.exists():
         print("No timings yet — run `pyclawd test run` (or `fast`) first.")
@@ -249,19 +261,33 @@ def print_timings(project: Project, top: int = 25) -> int:
             (t, _pretty_nodeid(c.get("classname", ""), c.get("name", ""), prefix, tests_dir))
         )
     rows.sort(reverse=True)
-    shown = rows if top <= 0 else rows[:top]
-    print(f"⏱  {len(rows)} tests · total {total:.1f}s cpu (slowest first)")
-    for t, nid in shown:
-        print(f"   {t:6.2f}s  {nid}")
+    if slow_threshold is not None:
+        filtered = [(t, nid) for t, nid in rows if t > slow_threshold]
+        if not filtered:
+            print(f"No tests over {slow_threshold}s found.")
+        else:
+            print(
+                f"⏱  {len(filtered)} tests over {slow_threshold}s"
+                " (consider adding @pytest.mark.slow):"
+            )
+            for t, nid in filtered:
+                print(f"   {t:6.2f}s  {nid}")
+    else:
+        shown = rows if top <= 0 else rows[:top]
+        print(f"⏱  {len(rows)} tests · total {total:.1f}s cpu (slowest first)")
+        for t, nid in shown:
+            print(f"   {t:6.2f}s  {nid}")
     return 0
 
 
 def fix(extra_args: list[str], project: Project) -> int:
-    """The debug primitive: rerun only last-failed, stop on the first, stream it
-    straight to the console (no log, no junit). Mirrors `pyclawd docs exec`.
+    """Rerun only last-failed tests, stop on the first, stream straight to the console.
+
+    No log, no junit. Mirrors `pyclawd docs exec`.
 
     Scoped to the default unit tier unless the caller passes their own ``-m`` — this
-    keeps ``--lf`` from re-running stale `examples`/`docs` cache entries."""
+    keeps ``--lf`` from re-running stale `examples`/`docs` cache entries.
+    """
     root = repo_root_or_exit()
     cmd = [*python_prefix(project), "-m", "pytest", "--lf", "-x", "-q", "-rfE"]
     if not has_target(extra_args):
@@ -277,6 +303,7 @@ def fix(extra_args: list[str], project: Project) -> int:
 
 
 def dispatch(verb: str, args: list[str]) -> int:
+    """Route a test sub-command verb (run/fast/all/failures/timings/fix) to its handler."""
     project = load_project_or_exit()
     jobs = project.test.jobs
     if verb == "run":
@@ -289,20 +316,31 @@ def dispatch(verb: str, args: list[str]) -> int:
         return print_failures(project)
     if verb == "timings":
         top = 25
+        slow_threshold: float | None = None
         for i, a in enumerate(args):
-            raw: str | None = None
+            raw_top: str | None = None
             if a == "--top" and i + 1 < len(args):
-                raw = args[i + 1]
+                raw_top = args[i + 1]
             elif a.startswith("--top="):
-                raw = a.split("=", 1)[1]
-            if raw is None:
-                continue
-            try:
-                top = int(raw)
-            except ValueError:
-                print(f"✗ --top expects an integer, got {raw!r}", file=sys.stderr)
-                return 2
-        return print_timings(project, top)
+                raw_top = a.split("=", 1)[1]
+            if raw_top is not None:
+                try:
+                    top = int(raw_top)
+                except ValueError:
+                    print(f"✗ --top expects an integer, got {raw_top!r}", file=sys.stderr)
+                    return 2
+            raw_st: str | None = None
+            if a == "--slow-threshold" and i + 1 < len(args):
+                raw_st = args[i + 1]
+            elif a.startswith("--slow-threshold="):
+                raw_st = a.split("=", 1)[1]
+            if raw_st is not None:
+                try:
+                    slow_threshold = float(raw_st)
+                except ValueError:
+                    print(f"✗ --slow-threshold expects a float, got {raw_st!r}", file=sys.stderr)
+                    return 2
+        return print_timings(project, top, slow_threshold)
     if verb == "fix":
         return fix(args, project)
     raise ValueError(f"unknown test verb: {verb}")

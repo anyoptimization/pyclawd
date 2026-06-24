@@ -114,19 +114,13 @@ def find_config_file(
 ) -> Path | None:
     """Resolve the project's ``.pyclawd/config.py`` using the precedence above.
 
-    Parameters
-    ----------
-    start : str or pathlib.Path or None, optional
-        Directory the walk-up fallback starts from. Defaults to the current
-        working directory.
-    config : str or pathlib.Path or None, optional
-        An explicit config file or directory (precedence #1). When ``None``, the
-        process-wide override from :func:`set_config_override` is used instead, if
-        set.
+    Args:
+        start: Directory the walk-up fallback starts from. Defaults to the current
+            working directory.
+        config: An explicit config file or directory (precedence #1). When ``None``, the
+            process-wide override from :func:`set_config_override` is used instead, if set.
 
-    Returns
-    -------
-    pathlib.Path or None
+    Returns:
         The resolved config-file path, or ``None`` if none is found.
     """
     explicit = config if config is not None else _OVERRIDE
@@ -160,31 +154,22 @@ def load_project(
     reads its module-level ``project`` object, validates it, and sets
     :attr:`Project.root`. Results are cached by config-file path.
 
-    Parameters
-    ----------
-    start : str or pathlib.Path or None, optional
-        Directory the walk-up fallback starts from. Defaults to the current
-        working directory.
-    config : str or pathlib.Path or None, optional
-        An explicit config file or directory (see :func:`find_config_file`).
+    Args:
+        start: Directory the walk-up fallback starts from. Defaults to the current
+            working directory.
+        config: An explicit config file or directory (see :func:`find_config_file`).
 
-    Returns
-    -------
-    Project or None
+    Returns:
         The loaded project with :attr:`Project.root` populated, or ``None`` if no
         config is found.
 
-    Raises
-    ------
-    ImportError
-        If the config file's import spec cannot be created.
-    ConfigError
-        If importing/executing the config module fails (syntax error, import
-        error, exception at module scope, …). The CLI turns this into a clean
-        one-line message; programmatic callers can catch it.
-    TypeError
-        If the config module has no ``project`` attribute or it is not a
-        :class:`Project` instance.
+    Raises:
+        ImportError: If the config file's import spec cannot be created.
+        ConfigError: If importing/executing the config module fails (syntax error, import
+            error, exception at module scope, …). The CLI turns this into a clean
+            one-line message; programmatic callers can catch it.
+        TypeError: If the config module has no ``project`` attribute or it is not a
+            :class:`Project` instance.
     """
     config_file = find_config_file(start, config=config)
     if config_file is None:

@@ -18,6 +18,8 @@ import typer
 
 from . import __version__, run
 from .commands import build as build_cmd
+from .commands import config as config_cmd
+from .commands import coverage as coverage_cmd
 from .commands import docs as docs_cmd
 from .commands import ls as ls_cmd
 from .commands import new as new_cmd
@@ -25,7 +27,7 @@ from .commands import quality as quality_cmd
 from .commands import skills as skills_cmd
 from .commands import test as test_cmd
 from .discovery import ConfigError, load_project, set_config_override
-from .doctor import run_doctor
+from .doctor import dump_json, run_doctor
 
 # Commands that forward unknown args/options straight to a subprocess.
 _PASSTHROUGH = {"allow_extra_args": True, "ignore_unknown_options": True}
@@ -49,7 +51,7 @@ def main(
         metavar="PATH",
     ),
 ) -> None:
-    """pyclawd — run code, test, build, and document any Python project."""
+    """Pyclawd — run code, test, build, and document any Python project."""
     if config:
         set_config_override(config)
 
@@ -70,8 +72,12 @@ def python(ctx: typer.Context) -> None:
 
 
 @app.command()
-def doctor() -> None:
+def doctor(
+    json_output: bool = typer.Option(False, "--json", help="Emit JSON instead of rich table."),
+) -> None:
     """Health-check the dev env (conda, deps, build, tools, git)."""
+    if json_output:
+        raise typer.Exit(dump_json())
     raise typer.Exit(run_doctor())
 
 
@@ -103,6 +109,8 @@ def version() -> None:
 # config block is optional (e.g. ``docs``) self-report cleanly at run time when
 # the loaded project does not configure them.
 build_cmd.register(app)
+config_cmd.register(app)
+coverage_cmd.register(app)
 test_cmd.register(app)
 quality_cmd.register(app)
 new_cmd.register(app)

@@ -85,16 +85,11 @@ def _render(text: str, ctx: dict[str, str]) -> str:
     Unknown ``{{...}}`` spans (e.g. GitHub Actions' ``${{ matrix... }}``) are left
     untouched because only the explicit keys in *ctx* are replaced.
 
-    Parameters
-    ----------
-    text : str
-        Template body.
-    ctx : dict of str to str
-        Placeholder name -> replacement value.
+    Args:
+        text: Template body.
+        ctx: Placeholder name -> replacement value.
 
-    Returns
-    -------
-    str
+    Returns:
         The rendered text.
     """
     for key, value in ctx.items():
@@ -242,24 +237,15 @@ def _render_config(
     mypy), a :class:`~pyclawd.TestConfig`, and a :class:`~pyclawd.DoctorConfig`.
     Optional ``docs`` / ``compile_step`` add the corresponding blocks.
 
-    Parameters
-    ----------
-    name : str
-        Project name.
-    pkg : str
-        Package import name.
-    conda_env : str or None
-        Conda env the project expects, or ``None`` for env-agnostic.
-    tests_dir : str
-        Root-relative tests directory (e.g. ``"tests/"``).
-    docs : bool
-        Whether to include a :class:`~pyclawd.DocsConfig` block.
-    compile_step : bool
-        Whether to include a build/compile step.
+    Args:
+        name: Project name.
+        pkg: Package import name.
+        conda_env: Conda env the project expects, or ``None`` for env-agnostic.
+        tests_dir: Root-relative tests directory (e.g. ``"tests/"``).
+        docs: Whether to include a :class:`~pyclawd.DocsConfig` block.
+        compile_step: Whether to include a build/compile step.
 
-    Returns
-    -------
-    str
+    Returns:
         The full text of the config module.
     """
     imports = ["DoctorConfig", "Project", "QualityConfig", "TestConfig"]
@@ -303,7 +289,7 @@ def _render_config(
         '        lint_cmd=["ruff", "check"],\n'
         '        lint_fix_cmd=["ruff", "check", "--fix"],\n'
         '        format_cmd=["ruff", "format"],\n'
-        '        format_check_cmd=["ruff", "format", "--check"],\n'
+        '        format_check_cmd=["ruff", "format", "--check", "--quiet"],\n'
         '        typecheck_cmd=["mypy", "src"],\n'
         '        check_sequence=["format-check", "lint", "typecheck", "test"],\n'
         "    ),\n"
@@ -311,12 +297,13 @@ def _render_config(
         f"        tests_dir={tests_dir!r},\n"
         '        classname_prefix="tests.",\n'
         "        integration_files=[],\n"
-        '        markers={"default": "not slow", "fast": "not slow", "all": ""},\n'
+        '        markers={"fast": "not slow and not integration",'
+        ' "default": "not slow", "all": ""},\n'
         "    ),\n"
         f"{docs_block}"
         "    doctor=DoctorConfig(\n"
         "        core_deps=[],\n"
-        '        dev_deps=["pytest"],\n'
+        '        dev_deps=["pytest", "pytest-xdist", "pytest-cov"],\n'
         "        tool_files=[],\n"
         "        binaries=[\n"
         '            ("ruff", "pip install ruff"),\n'

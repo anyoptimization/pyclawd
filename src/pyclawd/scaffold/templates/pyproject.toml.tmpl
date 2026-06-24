@@ -23,6 +23,7 @@ path = "src/{{pkg}}/__init__.py"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/{{pkg}}"]
+include = ["src/{{pkg}}/py.typed"]
 
 # PEP 735 dependency group — dev tooling, NOT a shipped extra.
 [dependency-groups]
@@ -47,16 +48,58 @@ extend-exclude = ["docs"]
 
 [tool.ruff.lint]
 # pyflakes (F), pycodestyle (E), isort (I), bugbear (B), pyupgrade (UP),
-# flake8-simplify (SIM), comprehensions (C4).
-select = ["E", "F", "I", "B", "UP", "SIM", "C4"]
+# flake8-simplify (SIM), comprehensions (C4), pydocstyle (D), pydoclint (DOC).
+select = ["E", "F", "I", "B", "UP", "SIM", "C4", "RUF", "PGH", "D", "DOC"]
+ignore = ["E501"]
+
+[tool.ruff.lint.pydocstyle]
+# Google style without types — type annotations are the source of truth (mypy).
+convention = "google"
+
+[tool.ruff.lint.flake8-bugbear]
+# typer.Option/Argument are safe in function defaults — they create descriptors.
+extend-immutable-calls = ["typer.Option", "typer.Argument"]
+
+[tool.ruff.lint.per-file-ignores]
+# Tests don't need docstrings.
+"tests/*.py" = ["D"]
 
 [tool.mypy]
 python_version = "3.10"
 files = ["src"]
-ignore_missing_imports = true
+strict = true
 warn_unused_configs = true
-check_untyped_defs = true
+warn_unused_ignores = true
 
 [tool.pytest.ini_options]
+minversion = "8.0"
 testpaths = ["tests"]
-addopts = "-q"
+addopts = [
+    "-ra",
+    "--strict-markers",
+    "--strict-config",
+    "-n", "auto",
+]
+markers = [
+    "slow: tests taking >1s — excluded from fast tier",
+    "integration: tests requiring external services or filesystem",
+    "long: tests too expensive for the default gate",
+]
+filterwarnings = [
+    "error",
+]
+
+[tool.coverage.run]
+source = ["src/{{pkg}}"]
+branch = true
+relative_files = true
+
+[tool.coverage.report]
+show_missing = true
+fail_under = 80
+exclude_lines = [
+    "pragma: no cover",
+    "if TYPE_CHECKING:",
+    "raise NotImplementedError",
+    "@overload",
+]

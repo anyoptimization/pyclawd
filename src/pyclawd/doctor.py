@@ -13,6 +13,7 @@ particular project.
 from __future__ import annotations
 
 import importlib
+import json
 import os
 import platform
 import shutil
@@ -323,3 +324,40 @@ def run_doctor() -> int:
         return 0
     console.print(f"[green]✓ platform {platform.system()} — all checks passed[/green]")
     return 0
+
+
+def dump_json(project: Project | None = None) -> int:
+    """Emit doctor results as JSON to stdout and return a process exit code.
+
+    Args:
+        project: The loaded project. If ``None``, it is discovered via
+            :func:`~pyclawd.discovery.load_project`. On ``ConfigError`` a JSON
+            object with a single ``"error"`` key is emitted and exit code 2 is
+            returned.
+
+    Returns:
+        0 when no check FAILed, 1 if any check FAILed, 2 on config error.
+    """
+    if project is None:
+        try:
+            project = load_project()
+        except ConfigError as exc:
+            json.dump({"error": str(exc)}, sys.stdout)
+            sys.stdout.write("\n")
+            return 2
+
+    checks = collect(project)
+    name = project.name if project is not None else "unknown project"
+    n_fail = sum(c.status == FAIL for c in checks)
+    n_warn = sum(c.status == WARN for c in checks)
+
+    payload: dict[str, object] = {
+        "project": name,
+        "checks": [{"name": c.name, "status": c.status, "detail": c.detail} for c in checks],
+        "ok": n_fail == 0,
+        "n_fail": n_fail,
+        "n_warn": n_warn,
+    }
+    json.dump(payload, sys.stdout, indent=2)
+    sys.stdout.write("\n")
+    return 1 if n_fail else 0

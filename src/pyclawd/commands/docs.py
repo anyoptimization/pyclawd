@@ -66,8 +66,10 @@ def _docs_run(project, sub: list[str], log: Path | None = None) -> int:
 
 
 def _preflight_render() -> None:
-    """Fail fast (before any expensive execution) if the HTML render toolchain
-    is missing. nbsphinx shells out to the `pandoc` system binary."""
+    """Fail fast (before any expensive execution) if the HTML render toolchain is missing.
+
+    nbsphinx shells out to the `pandoc` system binary.
+    """
     if not shutil.which("pandoc"):
         typer.secho(
             "✗ pandoc not found — nbsphinx needs it to render HTML.\n"

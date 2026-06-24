@@ -221,8 +221,29 @@ class QualityConfig:
 
 
 @dataclass(frozen=True)
+class CoverageConfig:
+    """Coverage measurement settings for ``pyclawd coverage``.
+
+    Parameters
+    ----------
+    source : list of str
+        Packages or directories to measure, passed as ``--cov=<src>`` to
+        pytest-cov (e.g. ``["src/mypkg"]``). At least one entry is required.
+    threshold : int
+        Minimum acceptable coverage percentage used by ``pyclawd coverage
+        --check`` (``--cov-fail-under=<threshold>``). Defaults to ``80``.
+    branch : bool
+        Enable branch coverage (``--cov-branch``). Defaults to ``True``.
+    """
+
+    source: list[str]
+    threshold: int = 80
+    branch: bool = True
+
+
+@dataclass(frozen=True)
 class DoctorConfig:
-    """Health-check settings for ``pyclawd doctor``.
+    r"""Health-check settings for ``pyclawd doctor``.
 
     Parameters
     ----------
@@ -363,6 +384,7 @@ class Project:
 
     docs: DocsConfig | None = None
     quality: QualityConfig | None = None
+    coverage: CoverageConfig | None = None
 
     extra_doctor_checks: Callable[..., list[Check]] | None = None
     root: Path | None = None
@@ -370,21 +392,15 @@ class Project:
     def path(self, *rel: str) -> Path:
         """Resolve a root-relative path against the discovered repository root.
 
-        Parameters
-        ----------
-        *rel : str
-            Path components relative to :attr:`root`.
+        Args:
+            *rel: Path components relative to :attr:`root`.
 
-        Returns
-        -------
-        pathlib.Path
+        Returns:
             ``self.root`` joined with ``rel``.
 
-        Raises
-        ------
-        ValueError
-            If :attr:`root` has not been set (i.e. the project was not loaded
-            through :func:`load_project`).
+        Raises:
+            ValueError: If :attr:`root` has not been set (i.e. the project was not loaded
+                through :func:`load_project`).
         """
         if self.root is None:
             raise ValueError("Project.root is not set — load via load_project().")

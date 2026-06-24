@@ -172,7 +172,7 @@ def test_timings_top_valid_int_parses(monkeypatch):
     monkeypatch.setattr(tests_mod, "load_project_or_exit", lambda: project)
     captured = {}
 
-    def fake_print_timings(proj, top):
+    def fake_print_timings(proj, top, slow_threshold=None):
         captured["top"] = top
         return 0
 

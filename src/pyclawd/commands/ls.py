@@ -40,6 +40,7 @@ from pathlib import Path
 import typer
 
 from .. import run
+from ..project import Project
 
 #: Maximum number of characters a description is truncated to (for clean columns).
 _MAX_DESC = 100
@@ -135,26 +136,22 @@ def _describe_py(text: str) -> str:
 def describe_file(path: Path) -> str:
     """Return the one-line description carried at the top of *path* (``""`` if none).
 
-    ``.py`` files use :func:`ast.get_docstring` (first non-empty line), falling back
-    to a leading ``#`` comment. Other text files use the first leading comment.
-    Binary/unreadable files — and anything that fails to parse — yield ``""``; this
-    function is deliberately total and never raises.
+    ``.py`` and ``.pyx`` files use :func:`ast.get_docstring` (first non-empty line),
+    falling back to a leading ``#`` comment. Other text files use the first leading
+    comment. Binary/unreadable files — and anything that fails to parse — yield
+    ``""``; this function is deliberately total and never raises.
 
-    Parameters
-    ----------
-    path : pathlib.Path
-        Absolute path to the file to describe.
+    Args:
+        path: Absolute path to the file to describe.
 
-    Returns
-    -------
-    str
+    Returns:
         The extracted description, stripped and truncated, or ``""``.
     """
     try:
         text = _read_text(path)
         if text is None:
             return ""
-        if path.suffix == ".py":
+        if path.suffix in {".py", ".pyx"}:
             return _describe_py(text)
         return _leading_comment(text)
     except (OSError, ValueError, UnicodeError):
@@ -232,7 +229,7 @@ def ls(
     missing: bool = typer.Option(
         False, "--missing", help="Show ONLY files that have no description (the gaps to fill)."
     ),
-    py: bool = typer.Option(False, "--py", help="Limit the listing to .py files."),
+    py: bool = typer.Option(False, "--py", help="Limit the listing to .py and .pyx files."),
     tracked: bool = typer.Option(
         False,
         "--tracked",
@@ -270,7 +267,7 @@ def ls(
 
     files = _collect_files(listdir, include_untracked=not tracked)
     if py:
-        files = [f for f in files if f.endswith(".py")]
+        files = [f for f in files if f.endswith(".py") or f.endswith(".pyx")]
 
     rows = [(rel, describe_file(listdir / rel)) for rel in files]
     total = len(rows)
@@ -293,6 +290,43 @@ def ls(
         bold=True,
     )
     raise typer.Exit(0)
+
+
+def check_descriptions(project: Project) -> int:
+    """Check that every source file in *project*'s ``src_dir`` has a description.
+
+    Used by ``pyclawd check`` when ``"descriptions"`` is in
+    ``quality.check_sequence``. Prints the missing files and a summary line.
+    Returns ``0`` when all files are described, ``1`` when any are missing.
+
+    Parameters
+    ----------
+    project : Project
+        The loaded project config.
+    """
+    root = project.root
+    assert root is not None
+    candidate = project.path(project.src_dir)
+    listdir = candidate if candidate.is_dir() else root
+
+    files = _collect_files(listdir, include_untracked=False)
+    rows = [(rel, describe_file(listdir / rel)) for rel in files]
+    missing = [rel for rel, desc in rows if not desc]
+
+    if missing:
+        width = min(max(len(r) for r in missing), 60)
+        for rel in missing:
+            typer.secho(f"  {rel.ljust(width)}  ", nl=False)
+            typer.secho("(no description)", fg="yellow")
+        typer.secho(
+            f"\n✗ {len(missing)}/{len(rows)} files lack a top-of-file description"
+            " — add a module docstring or leading # comment.",
+            fg="red",
+        )
+        return 1
+
+    typer.secho(f"✓ all {len(rows)} files have descriptions", fg="green")
+    return 0
 
 
 def register(app: typer.Typer) -> None:

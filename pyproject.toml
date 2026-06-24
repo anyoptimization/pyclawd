@@ -68,12 +68,22 @@ extend-exclude = ["docs"]
 [tool.ruff.lint]
 # A sensible, modern default: pyflakes (F), pycodestyle (E), isort (I),
 # bugbear (B), pyupgrade (UP), flake8-simplify (SIM), comprehensions (C4).
-select = ["E", "F", "I", "B", "UP", "SIM", "C4"]
+select = ["E", "F", "I", "B", "UP", "SIM", "C4", "D", "DOC"]
 # `compile` and `format` shadow builtins by design — they are intentional
 # command names (`pyclawd compile`, `pyclawd format`).
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
+
+[tool.ruff.lint.flake8-bugbear]
+# typer.Option / typer.Argument are the canonical Typer pattern for CLI defaults;
+# they are not "mutable default" hazards — they create OptionInfo descriptors.
+extend-immutable-calls = ["typer.Option", "typer.Argument"]
+
 [tool.ruff.lint.per-file-ignores]
 "src/pyclawd/commands/build.py" = ["A001"]
 "src/pyclawd/commands/quality.py" = ["A001"]
+"tests/*.py" = ["D"]
 
 [tool.mypy]
 # Non-strict to start: wire up type-checking without drowning in noise.

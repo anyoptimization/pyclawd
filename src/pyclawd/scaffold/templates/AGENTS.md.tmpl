@@ -24,26 +24,43 @@ root on `PYTHONPATH`. Bare `python` misses the env and the in-tree source.
 
 | Task | Command |
 |---|---|
+| Resolved config (what each command runs) | `pyclawd config` |
 | Health-check the dev env | `pyclawd doctor` |
 | Run Python in the env | `pyclawd python <file>` · `-m <mod>` · `-c <code>` |
-| Fast smoke tests | `pyclawd test fast` |
-| Default test gate | `pyclawd test run` |
-| Everything incl. slow/long | `pyclawd test all` |
+| Fast smoke (<30s, no integration) | `pyclawd test fast` |
+| Default gate (no slow, integration OK) | `pyclawd test run` |
+| Full suite (incl. slow + integration) | `pyclawd test all` |
 | Select tests | `pyclawd test -k <kw>` · `pyclawd test tests/path::node` |
 | Fix-loop | `pyclawd test failures` → `pyclawd test fix` → `pyclawd test run` |
-| Lint / autofix | `pyclawd lint` · `pyclawd lint --fix` |
-| Format / check | `pyclawd format` · `pyclawd format --check` |
-| Type-check | `pyclawd typecheck` |
-| **Aggregate quality gate** | `pyclawd check` |
+| Lint / autofix | `pyclawd lint` · `pyclawd lint --fix` · `pyclawd lint <file...>` |
+| Format / check | `pyclawd format` · `pyclawd format --check` · `pyclawd format <file...>` |
+| Type-check | `pyclawd typecheck` · `pyclawd typecheck <file...>` |
+| **Aggregate quality gate** | `pyclawd check` · `--fix` · `--skip <verb>` · `--fail-fast` · `pyclawd check <file...>` |
 | Build / dist / clean | `pyclawd compile` · `pyclawd dist` · `pyclawd clean` |
 | Manage agent skills | `pyclawd skills list` · `pyclawd skills install` |
 | Repo root / version | `pyclawd root` · `pyclawd version` |
 
-`pyclawd check` runs **format-check → lint → typecheck → test**, fail-fast, with a
-✓/✗ summary — the canonical "am I done?" gate. Build/dist/clean and docs commands
+`pyclawd check` runs all quality steps (format-check → lint → typecheck)
+**regardless of individual failures**, then **test** (only if quality passed). Each
+failing quality step is tee'd to a log file whose path appears in the summary —
+read those files to see the full output. Use `--skip <verb>` (repeatable) to omit a
+step entirely, `--fail-fast` to stop at the first failure, and `--fix` to apply
+format+lint autofixes in-place before checking. Build/dist/clean and docs commands
 only do real work when the project configures them; otherwise they degrade
 gracefully. Override config discovery with `--config PATH` (or `PYCLAWD_CONFIG`);
 by default pyclawd walks up from cwd to find `.pyclawd/config.py`.
+
+## Test tiers — what each runs
+
+| Tier | Marker filter | When to use |
+|---|---|---|
+| `fast` | `not slow and not integration` | After every edit — <30s smoke |
+| `run` (default) | `not slow` | Before opening a PR |
+| `all` | _(no filter)_ | Nightly / pre-release |
+
+Mark slow tests with `@pytest.mark.slow`, tests needing live services with
+`@pytest.mark.integration`. Unmarked tests run in every tier. Never mark
+tests `@pytest.mark.fast` — unmarked is the default.
 
 ## Prerequisites
 
@@ -64,6 +81,25 @@ root. The `Project` model groups config: `QualityConfig` (lint/format/typecheck)
 (deps/binaries to probe). Read `.pyclawd/config.py` before assuming how this
 project is wired — it is the single source of truth for env, paths, and checks.
 
+**Every module** opens with a one-line docstring. `pyclawd ls --missing` finds
+gaps — keep it empty. **Docstrings use Google style, no types** (annotations are
+the source of truth; `pyclawd lint` enforces via `D`/`DOC` ruff rules):
+
+```python
+def foo(x: int) -> str:
+    """One-line summary.
+
+    Args:
+        x: Description (no type — it's in the signature).
+
+    Returns:
+        Description of the return value.
+    """
+```
+
+NumPy-style (`Parameters\n----------`) will fail `pyclawd lint`. Tests are
+exempt from docstring rules.
+
 ## Boundaries
 
 ### Always
@@ -83,6 +119,55 @@ project is wired — it is the single source of truth for env, paths, and checks
 - Never commit secrets, tokens, or credentials.
 - Never weaken or delete a test to make a suite pass.
 - Never leave the tree with a failing `pyclawd check`.
+- Never use `git commit --no-verify` to bypass pre-commit hooks — fix the underlying issue instead.
+
+## Existing repos — quality baseline
+
+If `pyclawd check` is red on a repo you didn't just scaffold, it has a
+pre-existing quality backlog. **Do not reformat or re-lint files you aren't
+otherwise touching** — that inflates your diff with unrelated churn and makes
+review harder.
+
+Two paths:
+
+**A — Preferred: land a baseline PR first** (one commit, zero logic change):
+```bash
+pyclawd format          # reformat everything
+pyclawd lint --fix      # autofix all fixable lint
+pyclawd check           # now green; gate is live for all future work
+```
+
+**B — If the baseline PR is too disruptive right now**: scope quality checks
+to only the files you are changing:
+```bash
+pyclawd format src/mypkg/mymodule.py
+pyclawd lint   src/mypkg/mymodule.py
+```
+Your changes stay clean; the repo-wide backlog is a separate concern. Document
+in your PR description that the repo has a pre-existing quality backlog.
+
+### Docstring convention — opting out or changing
+
+The scaffold defaults to **Google style** enforced by ruff `D`/`DOC` rules.
+For repos with an existing convention, configure it once in `pyproject.toml`
+— no docstrings need rewriting:
+
+```toml
+# NumPy-style repo (scientific / pandas / numpy ecosystem)
+[tool.ruff.lint.pydocstyle]
+convention = "numpy"
+
+# No docstring enforcement (legacy codebase, gradual adoption)
+[tool.ruff.lint]
+ignore = ["D", "DOC"]
+
+# Enforce style on existing docstrings but don't require them everywhere yet
+[tool.ruff.lint]
+ignore = ["D100", "D101", "D102", "D103", "D104", "D105", "D106", "D107"]
+```
+
+> **Before writing any docstring:** read `pyproject.toml` to check which
+> convention this repo uses. Match the existing style — don't convert.
 
 ## How you know you're done
 

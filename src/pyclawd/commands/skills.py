@@ -118,20 +118,13 @@ def install_skills(
     (created if missing). An existing destination is skipped unless *force* is set,
     in which case it is replaced.
 
-    Parameters
-    ----------
-    target : pathlib.Path or None, optional
-        Destination directory. Defaults to user scope
-        (:func:`user_skills_dir`, ``~/.claude/skills``) when ``None``.
-    symlink : bool, optional
-        Symlink each skill dir instead of copying it. Defaults to ``False``.
-    force : bool, optional
-        Replace an existing destination instead of skipping it. Defaults to
-        ``False``.
+    Args:
+        target: Destination directory. Defaults to user scope
+            (:func:`user_skills_dir`, ``~/.claude/skills``) when ``None``.
+        symlink: Symlink each skill dir instead of copying it. Defaults to ``False``.
+        force: Replace an existing destination instead of skipping it. Defaults to ``False``.
 
-    Returns
-    -------
-    tuple of (list of str, list of str)
+    Returns:
         ``(installed, skipped)`` skill names.
     """
     if target is None:

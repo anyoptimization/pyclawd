@@ -8,6 +8,7 @@ with a crafted project (no real env assumptions beyond the running interpreter).
 from __future__ import annotations
 
 import dataclasses
+import json
 from pathlib import Path
 
 from pyclawd import doctor
@@ -187,3 +188,49 @@ def test_check_docs_ok_runner_and_reports_jupyter_cache(monkeypatch):
     # jupyter-cache is reported either way (OK if importable here, else WARN).
     assert "jupyter-cache" in rows
     assert rows["jupyter-cache"].status in (OK, WARN)
+
+
+# ---- dump_json --------------------------------------------------------------
+
+
+def test_dump_json_emits_valid_json_with_expected_keys(capsys):
+    project = _project()
+    code = doctor.dump_json(project)
+    assert isinstance(code, int)
+    data = json.loads(capsys.readouterr().out)
+    assert data["project"] == "demo"
+    assert isinstance(data["checks"], list)
+    assert "ok" in data
+    assert "n_fail" in data
+    assert "n_warn" in data
+
+
+def test_dump_json_ok_true_when_no_fails(capsys):
+    project = _project()
+    doctor.dump_json(project)
+    data = json.loads(capsys.readouterr().out)
+    assert data["ok"] is True
+    assert data["n_fail"] == 0
+
+
+def test_dump_json_ok_false_and_returns_1_on_fail(capsys):
+    project = _project(
+        doctor=DoctorConfig(
+            core_deps=["no_such_module_xyz"], dev_deps=[], tool_files=[], binaries=[]
+        )
+    )
+    code = doctor.dump_json(project)
+    data = json.loads(capsys.readouterr().out)
+    assert data["ok"] is False
+    assert data["n_fail"] >= 1
+    assert code == 1
+
+
+def test_dump_json_check_entries_have_required_fields(capsys):
+    project = _project()
+    doctor.dump_json(project)
+    data = json.loads(capsys.readouterr().out)
+    for check in data["checks"]:
+        assert "name" in check
+        assert "status" in check
+        assert "detail" in check

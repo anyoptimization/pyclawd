@@ -6,7 +6,7 @@ worked, minimal example of a ``.pyclawd/config.py`` for an env-agnostic,
 pure-Python project with no compile step and no docs.
 """
 
-from pyclawd import DocsConfig, DoctorConfig, Project, QualityConfig, TestConfig
+from pyclawd import CoverageConfig, DocsConfig, DoctorConfig, Project, QualityConfig, TestConfig
 
 project = Project(
     name="pyclawd",
@@ -30,7 +30,7 @@ project = Project(
         lint_cmd=["ruff", "check"],
         lint_fix_cmd=["ruff", "check", "--fix"],
         format_cmd=["ruff", "format"],
-        format_check_cmd=["ruff", "format", "--check"],
+        format_check_cmd=["ruff", "format", "--check", "--quiet"],
         typecheck_cmd=["mypy", "src"],
         check_sequence=["format-check", "lint", "typecheck", "test"],
     ),
@@ -39,11 +39,12 @@ project = Project(
         classname_prefix="tests.",
         integration_files=[],
         # No slow/long tests here, so every tier collects the same suite.
-        markers={"default": "not slow", "fast": "not slow", "all": ""},
+        markers={"fast": "not slow and not integration", "default": "not slow", "all": ""},
     ),
+    coverage=CoverageConfig(source=["src/pyclawd"]),
     doctor=DoctorConfig(
         core_deps=["typer", "rich"],
-        dev_deps=["pytest"],
+        dev_deps=["pytest", "pytest-xdist", "pytest-cov"],
         tool_files=[],
         # Quality toolchain — probed via `shutil.which` (WARN if absent).
         binaries=[
