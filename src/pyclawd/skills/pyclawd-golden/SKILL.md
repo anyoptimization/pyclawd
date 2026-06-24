@@ -148,4 +148,5 @@ If a baseline is missing (`no baseline for …`), you never recorded it — run
 | Lint / format / typecheck / the `check` gate | `pyclawd-quality` |
 | Running tiered tests, the fix-loop | `pyclawd-tests` |
 | Env looks wrong, imports fail | `pyclawd-doctor` |
+| Migrating a whole framework | `.claude/docs/migration.md` |
 | Mental model + full doctrine | `pyclawd` (umbrella) · `AGENTS.md` |
