@@ -70,6 +70,10 @@ files = ["src"]
 strict = true
 warn_unused_configs = true
 warn_unused_ignores = true
+# Needed for `pyclawd typecheck/check <file>` — prevents "Duplicate module"
+# errors when mypy resolves a single source file by path instead of by name.
+explicit_package_bases = true
+mypy_path = "."
 
 [tool.pytest.ini_options]
 minversion = "8.0"

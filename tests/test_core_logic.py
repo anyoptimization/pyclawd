@@ -270,10 +270,11 @@ def test_check_runs_all_quality_steps_and_passes(monkeypatch):
     )
     p = _project(root=Path("/tmp/repo"), quality=q)
     monkeypatch.setattr(quality_cmd.run, "load_project_or_exit", lambda: p)
-    monkeypatch.setattr(quality_cmd, "_tee", lambda cmd, log, root: (calls.append(cmd[0]), 0)[1])
+    # save_logs=False → run.run() is called, not _tee — patch the right function.
+    monkeypatch.setattr(quality_cmd.run, "run", lambda cmd, root: (calls.append(cmd[0]), 0)[1])
 
     with pytest.raises(typer.Exit) as exc:
-        quality_cmd.check(fix=False, skip=None, fail_fast=False, paths=None)
+        quality_cmd.check(fix=False, skip=None, fail_fast=False, save_logs=False, paths=None)
     assert exc.value.exit_code == 0
     assert calls == ["ruff", "ruff", "mypy"]  # format-check, lint, typecheck — all ran
 
@@ -290,13 +291,14 @@ def test_check_runs_all_quality_steps_then_skips_test_on_failure(monkeypatch):
     p = _project(root=Path("/tmp/repo"), quality=q)
     monkeypatch.setattr(quality_cmd.run, "load_project_or_exit", lambda: p)
 
-    def fake_tee(cmd, log, root):
+    def fake_run(cmd, root):
         ran.append(cmd[0])
         return 1 if cmd[:2] == ["ruff", "check"] else 0  # lint fails
 
-    monkeypatch.setattr(quality_cmd, "_tee", fake_tee)
+    # save_logs=False → run.run() is called, not _tee — patch the right function.
+    monkeypatch.setattr(quality_cmd.run, "run", fake_run)
     with pytest.raises(typer.Exit) as exc:
-        quality_cmd.check(fix=False, skip=None, fail_fast=False, paths=None)
+        quality_cmd.check(fix=False, skip=None, fail_fast=False, save_logs=False, paths=None)
     assert exc.value.exit_code == 1
     # All three quality steps ran (format-check, lint, typecheck); test was skipped.
     assert ran == ["ruff", "ruff", "mypy"]
@@ -339,13 +341,16 @@ def test_check_propagates_paths_to_quality_steps(monkeypatch):
     )
     p = _project(root=Path("/tmp/repo"), quality=q)
     monkeypatch.setattr(quality_cmd.run, "load_project_or_exit", lambda: p)
+    # save_logs=False → run.run() is called, not _tee — patch the right function.
     monkeypatch.setattr(
-        quality_cmd,
-        "_tee",
-        lambda cmd, log, root: (captured_cmds.append(cmd), 0)[1],
+        quality_cmd.run,
+        "run",
+        lambda cmd, root: (captured_cmds.append(cmd), 0)[1],
     )
     with pytest.raises(typer.Exit) as exc:
-        quality_cmd.check(fix=False, skip=None, fail_fast=False, paths=["src/mypkg/foo.py"])
+        quality_cmd.check(
+            fix=False, skip=None, fail_fast=False, save_logs=False, paths=["src/mypkg/foo.py"]
+        )
     assert exc.value.exit_code == 0
     assert captured_cmds == [
         ["ruff", "format", "--check", "src/mypkg/foo.py"],

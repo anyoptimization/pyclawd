@@ -31,7 +31,7 @@ project = Project(
         lint_fix_cmd=["ruff", "check", "--fix"],
         format_cmd=["ruff", "format"],
         format_check_cmd=["ruff", "format", "--check", "--quiet"],
-        typecheck_cmd=["mypy", "src"],
+        typecheck_cmd=["mypy"],  # target-less: mypy reads files=["src"] from pyproject.toml
         check_sequence=["format-check", "lint", "typecheck", "test"],
     ),
     test=TestConfig(

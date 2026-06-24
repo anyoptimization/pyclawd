@@ -211,6 +211,11 @@ def check(
         "--fail-fast",
         help="Stop at the first failing step instead of running all quality steps.",
     ),
+    save_logs: bool = typer.Option(
+        False,
+        "--log",
+        help="Tee each quality step's output to a log file (default: inline only).",
+    ),
     paths: list[str] | None = typer.Argument(
         None,
         help=(
@@ -222,23 +227,27 @@ def check(
     """Aggregate quality gate: run all quality steps, then tests if quality passed.
 
     Quality steps (``format-check``, ``lint``, ``typecheck``) always all run so
-    the agent sees the full picture in one shot — their output is tee'd to log
-    files shown in the summary on failure. The ``test`` step (and any subsequent
-    steps) are skipped when any quality step failed; use ``pyclawd test failures``
-    / ``pyclawd test fix`` to iterate on test failures once quality is green.
+    the agent sees the full picture in one shot, printed inline. The ``test`` step
+    (and any subsequent steps) are skipped when any quality step failed; use
+    ``pyclawd test failures`` / ``pyclawd test fix`` to iterate on test failures
+    once quality is green.
 
     ``--skip <verb>`` (repeatable) omits a step entirely.
     ``--fail-fast`` stops at the first failure (any step).
     ``--fix`` applies format and lint autofixes in-place before checking.
-    Optional positional *paths* scope quality steps to specific files/directories.
+    ``--log`` tee's each quality step to a log file (useful for CI artifacts).
+    Optional positional *paths* scope quality steps to specific files/directories —
+    requires **target-less quality cmds** in ``.pyclawd/config.py`` (e.g.
+    ``["ruff", "check"]`` not ``["ruff", "check", "src"]``); the tool then reads
+    its own target from ``pyproject.toml`` config when no paths are given.
     """
     project = run.load_project_or_exit()
     quality = _quality_or_exit(project)
     skip_set = set(skip or [])
     sequence = [v for v in quality.check_sequence if v not in skip_set]
 
-    rid = run_id()
-    log_dir = category_dir("check", project)
+    log_dir = category_dir("check", project) if save_logs else None
+    rid = run_id() if save_logs else ""
 
     # (verb, exit_code | None-if-skipped, log_path | None)
     results: list[tuple[str, int | None, Path | None]] = []
@@ -250,11 +259,11 @@ def check(
             continue
 
         typer.secho(f"\n── check: {verb} ───────────────────────────────", fg="cyan")
-        log: Path | None = None
-        if verb in _QUALITY_STEPS:
-            log = log_dir / f"{rid}-{verb}.log"
-        rc = _run_step(verb, project, quality, fix=fix, log=log, paths=paths)
-        results.append((verb, rc, log if rc != 0 else None))
+        step_log: Path | None = None
+        if save_logs and log_dir is not None and verb in _QUALITY_STEPS:
+            step_log = log_dir / f"{rid}-{verb}.log"
+        rc = _run_step(verb, project, quality, fix=fix, log=step_log, paths=paths)
+        results.append((verb, rc, step_log if rc != 0 else None))
         if rc != 0:
             if fail_fast:
                 break

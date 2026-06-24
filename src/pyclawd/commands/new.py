@@ -290,7 +290,9 @@ def _render_config(
         '        lint_fix_cmd=["ruff", "check", "--fix"],\n'
         '        format_cmd=["ruff", "format"],\n'
         '        format_check_cmd=["ruff", "format", "--check", "--quiet"],\n'
-        '        typecheck_cmd=["mypy", "src"],\n'
+        # target-less: mypy reads files=["src"] from pyproject.toml;
+        # pyclawd appends the path arg for single-file mode (pyclawd check <file>).
+        '        typecheck_cmd=["mypy"],\n'
         '        check_sequence=["format-check", "lint", "typecheck", "test"],\n'
         "    ),\n"
         "    test=TestConfig(\n"

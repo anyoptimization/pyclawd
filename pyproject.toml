@@ -92,3 +92,7 @@ files = ["src"]
 ignore_missing_imports = true
 warn_unused_configs = true
 check_untyped_defs = true
+# Needed for `pyclawd typecheck/check <file>` — prevents "Duplicate module"
+# errors when mypy resolves a single source file by path instead of by name.
+explicit_package_bases = true
+mypy_path = "."

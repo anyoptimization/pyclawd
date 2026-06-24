@@ -159,27 +159,59 @@ docstrings — matching the existing convention matters more than any default.
 ### The gate: `pyclawd check`
 
 Runs all quality steps (format-check → lint → typecheck) **regardless of
-individual failures**, then **test** (only if quality passed). Each failing
-quality step is tee'd to a log file — the path is shown in the summary so the
-agent can read the full output. This is the definition of done.
+individual failures**, streaming each step's output inline. Then runs **test**
+only if quality passed.
 
 ```bash
-pyclawd check                        # see all quality issues in one shot; tests run if quality passes
+pyclawd check                        # full project; all quality steps + tests
 pyclawd check --fix                  # autofix format+lint, then check everything
 pyclawd check --skip test            # quality only, no tests
 pyclawd check --skip typecheck       # format + lint only
 pyclawd check --fail-fast            # stop at first failure (CI mode)
-pyclawd check src/mypkg/foo.py       # quality on one file (parallelization)
+pyclawd check src/mypkg/foo.py       # quality on one file — parallelization
+pyclawd check --log                  # also write each step's output to a log file
 ```
 
-When `pyclawd check` fails at quality steps, the summary shows log paths:
+All output is printed inline — you can read it directly in the terminal or
+conversation context. `--log` additionally writes each failing step to a file and
+shows the path in the summary; use it for CI artifacts or when you want a
+persistent record.
+
+The summary is always printed:
 ```
-  ✗  format-check  →  /tmp/pyclawd/logs/check/20260624-format-check.log
-  ✗  lint          →  /tmp/pyclawd/logs/check/20260624-lint.log
+  ✓  format-check
+  ✗  lint  (exit 1)
   ✓  typecheck
   ·  test  (skipped — fix quality first)
 ```
-Read the log files to see the full tool output (file lists, error details).
+
+#### Prerequisite for `pyclawd check <file>` to work correctly
+
+Quality cmds in `.pyclawd/config.py` must be **target-less** — pyclawd appends
+the path argument, so the tool must not already have a target baked in:
+
+```python
+# ✓ correct — target-less; tool reads its config (pyproject.toml files/src)
+QualityConfig(
+    lint_cmd=["ruff", "check"],
+    typecheck_cmd=["mypy"],
+)
+
+# ✗ wrong — has a hardcoded target; pyclawd check foo.py → mypy pymoo foo.py
+#            → "Duplicate module" error or full-package scan instead of per-file
+QualityConfig(
+    lint_cmd=["ruff", "check", "pymoo"],
+    typecheck_cmd=["mypy", "pymoo"],
+)
+```
+
+With target-less cmds:
+- `pyclawd check` → `ruff check` / `mypy` (tools use their own pyproject config)
+- `pyclawd check src/mypkg/foo.py` → `ruff check src/mypkg/foo.py` / `mypy src/mypkg/foo.py`
+
+Mypy also needs `explicit_package_bases = true` and `mypy_path = "."` in
+`[tool.mypy]` to avoid "Duplicate module" when a single source file is passed by
+path — the scaffold template includes these automatically.
 
 ### Ruff (lint + format)
 
