@@ -34,6 +34,7 @@ from __future__ import annotations
 
 import ast
 import os
+import re
 import subprocess
 from pathlib import Path
 
@@ -292,6 +293,19 @@ def ls(
     raise typer.Exit(0)
 
 
+def _descriptions_filter(rel: str, project: Project) -> bool:
+    """Return True when *rel* should be checked for a description.
+
+    Applies ``project.descriptions_include`` (must match ≥1) then
+    ``project.descriptions_exclude`` (skip if any matches).
+    """
+    includes = [re.compile(p) for p in project.descriptions_include]
+    excludes = [re.compile(p) for p in project.descriptions_exclude]
+    if includes and not any(pat.search(rel) for pat in includes):
+        return False
+    return not any(pat.search(rel) for pat in excludes)
+
+
 def check_descriptions(project: Project, paths: list[str] | None = None) -> int:
     """Check that every source file in *project*'s ``src_dir`` has a description.
 
@@ -302,7 +316,8 @@ def check_descriptions(project: Project, paths: list[str] | None = None) -> int:
     Args:
         project: The loaded project config.
         paths: Optional list of specific files to check. When given, only those
-            files are checked instead of the full ``src_dir``.
+            files are checked instead of the full ``src_dir``. The include/exclude
+            filters still apply.
     """
     root = project.root
     assert root is not None
@@ -310,10 +325,14 @@ def check_descriptions(project: Project, paths: list[str] | None = None) -> int:
     listdir = candidate if candidate.is_dir() else root
 
     if paths:
-        rows = [(p, describe_file(Path(p) if Path(p).is_absolute() else root / p)) for p in paths]
+        eligible = [p for p in paths if _descriptions_filter(p, project)]
+        rows = [
+            (p, describe_file(Path(p) if Path(p).is_absolute() else root / p)) for p in eligible
+        ]
     else:
-        files = _collect_files(listdir, include_untracked=False)
-        rows = [(rel, describe_file(listdir / rel)) for rel in files]
+        all_files = _collect_files(listdir, include_untracked=False)
+        eligible = [f for f in all_files if _descriptions_filter(f, project)]
+        rows = [(rel, describe_file(listdir / rel)) for rel in eligible]
     missing = [rel for rel, desc in rows if not desc]
 
     if missing:

@@ -272,7 +272,7 @@ class DoctorConfig:
 
 @dataclass(frozen=True)
 class Project:
-    """Immutable description of a project that pyclawd operates on.
+    r"""Immutable description of a project that pyclawd operates on.
 
     An adopting project supplies one of these as the module-level ``project``
     object in its ``.pyclawd/config.py``. The loader fills in :attr:`root` (the
@@ -343,6 +343,16 @@ class Project:
     src_dir : str, optional
         Default directory ``pyclawd ls`` lists (the code/source root), relative to
         the repo root. Defaults to ``src``.
+    descriptions_include : list of str, optional
+        Regex patterns (``re.search``) applied to each file's repo-relative path.
+        A file is eligible for description checking only when it matches **at least
+        one** pattern. Defaults to ``[r"\\.pyx?$"]`` (Python and Cython source only).
+        Override to add other file types, e.g. ``[r"\\.pyx?$", r"\\.pxd$"]``.
+    descriptions_exclude : list of str, optional
+        Regex patterns (``re.search``) applied to each file's repo-relative path.
+        A file is skipped when it matches **any** pattern. Defaults to ``[]``.
+        Use this to exclude vendored Python, generated code, etc., e.g.
+        ``[r"vendor/", r"_generated/"]``.
     docs : DocsConfig or None, optional
         Documentation-build settings, or ``None`` (the default) when the project
         has no docs. When ``None`` the ``pyclawd docs`` command group is not even
@@ -381,6 +391,8 @@ class Project:
     clean_ext_globs: list[str] = field(default_factory=list)
 
     src_dir: str = "src"
+    descriptions_include: list[str] = field(default_factory=lambda: [r"\.pyx?$"])
+    descriptions_exclude: list[str] = field(default_factory=list)
 
     docs: DocsConfig | None = None
     quality: QualityConfig | None = None
