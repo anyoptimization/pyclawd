@@ -191,8 +191,9 @@ def _run_step(
     return run.run(full_cmd, project.root)
 
 
-#: Steps that run a subprocess and whose output is tee'd to a log file.
-_QUALITY_STEPS = {"format-check", "lint", "typecheck"}
+#: Steps that always run regardless of other failures (tee'd to log when --log).
+#: "descriptions" is in-process but still a quality gate, not a post-quality step.
+_QUALITY_STEPS = {"format-check", "lint", "typecheck", "descriptions"}
 
 
 def check(
