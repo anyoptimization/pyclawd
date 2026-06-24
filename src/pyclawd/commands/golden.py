@@ -1,0 +1,330 @@
+"""Golden command group — ``pyclawd golden`` (the behavior-regression oracle).
+
+The static gate (``pyclawd check``) proves code is *clean*; ``golden`` proves
+behavior is *unchanged* by comparing observable test outputs against committed
+snapshot baselines. The engine lives in :mod:`pyclawd.golden` and the pytest
+plugin (loaded explicitly via ``-p pyclawd.pytest_plugin``); this module is the
+thin command layer that drives them.
+
+Subcommands (all driven by :class:`~pyclawd.project.GoldenConfig`):
+
+- ``pyclawd golden`` (default) — **compare**: run the golden suite as a gate.
+- ``pyclawd golden update`` — **bless**: re-record baselines (humans bless,
+  agents only compare — never wire this into an autonomous self-gate).
+- ``pyclawd golden status`` — inventory the committed baselines (+ orphan hint).
+- ``pyclawd golden prune`` — drop orphaned baseline entries whose test is gone.
+
+Exit-code contract (agent-native, deterministic):
+
+- ``0`` — success.
+- ``2`` — golden not configured for this project.
+- otherwise — pytest's own exit code (snapshot drift, collection error, …).
+"""
+
+from __future__ import annotations
+
+import os
+import subprocess
+
+import typer
+
+from .. import run
+from ..golden import GoldenStore, iter_baseline_files
+from ..project import GoldenConfig, Project
+
+#: Environment variable that signals the pytest plugin to record (bless) baselines.
+UPDATE_ENV = "PYCLAWD_GOLDEN_UPDATE"
+
+#: pytest plugin module the golden commands load explicitly (it is not auto-registered).
+_PLUGIN = "pyclawd.pytest_plugin"
+
+
+def _golden_or_exit(project: Project) -> GoldenConfig:
+    """Return ``project.golden`` or exit ``2`` with a clear, actionable message.
+
+    Args:
+        project: The loaded project config.
+
+    Returns:
+        The project's golden configuration.
+    """
+    if project.golden is None:
+        typer.secho(
+            "golden not configured — add GoldenConfig to .pyclawd/config.py",
+            fg="red",
+            err=True,
+        )
+        raise typer.Exit(2)
+    return project.golden
+
+
+def _pytest_cmd(project: Project, golden: GoldenConfig) -> list[str]:
+    """Build the base pytest argv that selects the golden suite with the plugin.
+
+    Args:
+        project: The loaded project (provides the env prefix + tests dir).
+        golden: The golden configuration (provides the marker).
+
+    Returns:
+        The argv ``<python> -m pytest <tests_dir> -p <plugin> -m <marker>``.
+    """
+    prefix = run.python_prefix(project)
+    return [
+        *prefix,
+        "-m",
+        "pytest",
+        project.test.tests_dir,
+        "-p",
+        _PLUGIN,
+        "-m",
+        golden.marker,
+    ]
+
+
+def orphan_keys(store_keys: list[str], collected_nodeids: set[str]) -> list[str]:
+    """Return baseline keys whose test case no longer exists among collected node ids.
+
+    A snapshot key is the test node id's last ``::``-segment (e.g.
+    ``test_minimize[sphere]``) with an optional ``::label`` suffix (e.g.
+    ``test_minimize[sphere]::F``). A key is an **orphan** when its part *before*
+    the ``::label`` is not among the last ``::``-segments of the collected node
+    ids — i.e. the test that would record it is gone.
+
+    Args:
+        store_keys: All recorded baseline keys (across the relevant stores).
+        collected_nodeids: Test node ids pytest currently collects for the marker.
+
+    Returns:
+        The orphaned keys, in input order.
+    """
+    live = {nodeid.rsplit("::", 1)[-1] for nodeid in collected_nodeids}
+    return [key for key in store_keys if key.split("::", 1)[0] not in live]
+
+
+def _parse_nodeids(text: str) -> set[str]:
+    """Parse test node ids from ``pytest --collect-only -q`` output (best-effort).
+
+    Args:
+        text: The captured stdout of a collect-only run.
+
+    Returns:
+        The set of node-id lines (those containing ``::``).
+    """
+    nodeids: set[str] = set()
+    for raw in text.splitlines():
+        line = raw.strip()
+        if "::" in line and not line.startswith(("<", "=", "no tests")):
+            nodeids.add(line)
+    return nodeids
+
+
+def _collect_nodeids(project: Project, golden: GoldenConfig) -> set[str] | None:
+    """Collect the golden suite's node ids, or ``None`` if collection fails.
+
+    Runs ``pytest --collect-only -q -m <marker> -p <plugin>`` and parses the
+    node-id lines. Returns ``None`` (so callers skip orphan detection gracefully)
+    when pytest cannot be launched or exits non-zero.
+
+    Args:
+        project: The loaded project (provides the env + root).
+        golden: The golden configuration (provides the marker).
+
+    Returns:
+        The collected node ids, or ``None`` on any collection failure.
+    """
+    prefix = run.python_prefix(project)
+    cmd = [
+        *prefix,
+        "-m",
+        "pytest",
+        project.test.tests_dir,
+        "--collect-only",
+        "-q",
+        "-m",
+        golden.marker,
+        "-p",
+        _PLUGIN,
+    ]
+    assert project.root is not None
+    try:
+        proc = subprocess.run(
+            cmd,
+            cwd=str(project.root),
+            env=run.repo_env(project.root),
+            capture_output=True,
+            text=True,
+        )
+    except OSError:
+        return None
+    if proc.returncode != 0:
+        return None
+    return _parse_nodeids(proc.stdout)
+
+
+# --------------------------------------------------------------------------- #
+# Subcommands.
+# --------------------------------------------------------------------------- #
+
+
+def _compare() -> None:
+    """Run the golden suite as a gate (the default ``pyclawd golden`` action)."""
+    project = run.load_project_or_exit()
+    golden = _golden_or_exit(project)
+    cmd = _pytest_cmd(project, golden)
+    raise typer.Exit(run.run(cmd, project.root))
+
+
+def update(
+    expr: str = typer.Option(
+        None,
+        "-k",
+        metavar="EXPR",
+        help="Only bless tests matching this keyword expression (pytest -k).",
+    ),
+) -> None:
+    """Bless baselines — re-record the golden suite (humans bless; agents compare).
+
+    Sets ``PYCLAWD_GOLDEN_UPDATE=1`` so the plugin records fresh baselines instead
+    of gating. With ``-k EXPR`` only the matched cases are re-blessed, leaving the
+    rest untouched. After it runs, **review** ``git diff`` of the baseline dir and
+    commit deliberately — never auto-bless in an autonomous loop.
+    """
+    project = run.load_project_or_exit()
+    golden = _golden_or_exit(project)
+    cmd = _pytest_cmd(project, golden)
+    if expr:
+        cmd += ["-k", expr]
+    os.environ[UPDATE_ENV] = "1"
+    code = run.run(cmd, project.root)
+    typer.secho(
+        f"\nReview `git diff {golden.baseline_dir}` and commit the blessed baselines.",
+        fg="yellow",
+    )
+    raise typer.Exit(code)
+
+
+def status() -> None:
+    """Show the committed-baseline inventory (per file + grand total) and orphans.
+
+    Reads every baseline file under ``golden.baseline_dir`` and prints its entry
+    count, then a grand total. Best-effort: it also collects the live golden node
+    ids and flags any orphaned entries (a test that no longer exists); if
+    collection fails it still prints the snapshot inventory.
+    """
+    project = run.load_project_or_exit()
+    golden = _golden_or_exit(project)
+    baseline_dir = project.path(golden.baseline_dir)
+    files = iter_baseline_files(baseline_dir)
+
+    if not files:
+        typer.secho(
+            f"no baselines under {baseline_dir} (run `pyclawd golden update`).", fg="yellow"
+        )
+        raise typer.Exit(0)
+
+    typer.secho(f"Golden baselines under {baseline_dir}:", bold=True)
+    total = 0
+    all_keys: list[str] = []
+    for path in files:
+        keys = GoldenStore(path).keys()
+        total += len(keys)
+        all_keys += keys
+        typer.echo(f"  {path.name}  ({len(keys)} snapshot{'s' if len(keys) != 1 else ''})")
+    typer.secho(f"  total: {total} snapshot{'s' if total != 1 else ''}", fg="green")
+
+    collected = _collect_nodeids(project, golden)
+    if collected is None:
+        typer.secho(
+            "  (orphan check skipped — could not collect the golden suite)",
+            fg="bright_black",
+        )
+        raise typer.Exit(0)
+
+    orphans = orphan_keys(all_keys, collected)
+    if orphans:
+        typer.secho(
+            f"\n  {len(orphans)} orphaned entr{'ies' if len(orphans) != 1 else 'y'}:", fg="yellow"
+        )
+        for key in orphans:
+            typer.secho(f"    ⚠ {key}", fg="yellow")
+        typer.secho("  run `pyclawd golden prune` to remove them.", fg="bright_black")
+    else:
+        typer.secho("  no orphaned entries.", fg="bright_black")
+    raise typer.Exit(0)
+
+
+def prune() -> None:
+    """Remove orphaned baseline entries (test gone) and delete emptied files.
+
+    Collects the live golden node ids, drops every orphaned entry from its store,
+    saves modified stores, and deletes any file that becomes empty. Every removal
+    is printed — nothing is removed silently. If the suite cannot be collected,
+    pruning is refused (exit ``1``) rather than guessing what is orphaned.
+    """
+    project = run.load_project_or_exit()
+    golden = _golden_or_exit(project)
+    baseline_dir = project.path(golden.baseline_dir)
+    files = iter_baseline_files(baseline_dir)
+
+    if not files:
+        typer.secho(f"no baselines under {baseline_dir} — nothing to prune.", fg="yellow")
+        raise typer.Exit(0)
+
+    collected = _collect_nodeids(project, golden)
+    if collected is None:
+        typer.secho(
+            "prune refused — could not collect the golden suite to determine orphans.",
+            fg="red",
+            err=True,
+        )
+        raise typer.Exit(1)
+
+    removed = 0
+    for path in files:
+        store = GoldenStore(path)
+        orphans = orphan_keys(store.keys(), collected)
+        if not orphans:
+            continue
+        for key in orphans:
+            store.remove(key)
+            removed += 1
+            typer.secho(f"  ✗ removed {path.name} :: {key}", fg="red")
+        if store.is_empty():
+            path.unlink()
+            typer.secho(f"  ✗ deleted empty {path.name}", fg="red")
+        else:
+            store.save()
+
+    if removed == 0:
+        typer.secho("no orphaned entries — nothing pruned.", fg="green")
+    else:
+        typer.secho(
+            f"\npruned {removed} orphaned entr{'ies' if removed != 1 else 'y'} "
+            f"— review `git diff {golden.baseline_dir}` and commit.",
+            fg="yellow",
+        )
+    raise typer.Exit(0)
+
+
+def register(app: typer.Typer) -> None:
+    """Attach the ``golden`` command group to *app*.
+
+    The default invocation (``pyclawd golden``) compares; ``update`` / ``status`` /
+    ``prune`` are subcommands. Always registered — each self-reports and exits ``2``
+    when the loaded project does not configure golden.
+    """
+    golden_app = typer.Typer(
+        help="Behavior-regression oracle: compare observable outputs to committed baselines.",
+    )
+
+    @golden_app.callback(invoke_without_command=True)
+    def _default(ctx: typer.Context) -> None:
+        """Compare the golden suite against committed baselines (the default action)."""
+        if ctx.invoked_subcommand is not None:
+            return
+        _compare()
+
+    golden_app.command()(update)
+    golden_app.command()(status)
+    golden_app.command()(prune)
+    app.add_typer(golden_app, name="golden")

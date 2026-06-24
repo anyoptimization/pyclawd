@@ -44,7 +44,7 @@ def acme_doctor_checks() -> list[Check]:
 
     try:
         acme = importlib.import_module("acme")
-    except Exception as exc:  # noqa: BLE001 - report any import failure as a row
+    except Exception as exc:
         return [Check(FAIL, "acme", f"not importable ({type(exc).__name__})")]
 
     where = os.path.dirname(acme.__file__)
@@ -58,7 +58,7 @@ def acme_doctor_checks() -> list[Check]:
             if active
             else Check(WARN, "compiled ext", "pure-Python (slow) — run `pyclawd compile`")
         )
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         checks.append(Check(WARN, "compiled ext", f"undetermined ({type(exc).__name__})"))
     return checks
 
@@ -132,6 +132,21 @@ project = Project(
         build_html="docs/build/html",
         branch="main",
     ),
+    # --- golden (behavior-regression oracle — opt-in) --------------------- #
+    # The static gate (quality + test) proves code *clean*; golden proves behavior
+    # *unchanged* by comparing observable outputs against committed baselines and
+    # failing on drift. Unset (the default) → `pyclawd golden` exits 2. Uncomment to
+    # opt in (also register the `golden` marker in pyproject.toml and add
+    # `GoldenConfig` to the imports above). Tolerance is the gate; the hash is only a
+    # fast path. Agents compare (`pyclawd golden`); humans bless (`golden update`).
+    # See the `pyclawd-golden` skill.
+    #   golden=GoldenConfig(
+    #       baseline_dir="tests/golden",  # committed baseline JSON (one per module)
+    #       marker="golden",              # selects @pytest.mark.golden tests
+    #       precision=10,                 # decimals rounded before the fast-path hash
+    #       rtol=1e-9,                    # default relative tolerance (the gate)
+    #       atol=1e-12,                   # default absolute tolerance
+    #   ),
     # --- doctor (env health-check) ---------------------------------------- #
     doctor=DoctorConfig(
         # Imports that MUST succeed (a missing one is a FAIL).

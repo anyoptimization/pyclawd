@@ -48,12 +48,16 @@ extend-exclude = ["docs"]
 
 [tool.ruff.lint]
 # pyflakes (F), pycodestyle (E), isort (I), bugbear (B), pyupgrade (UP),
-# flake8-simplify (SIM), comprehensions (C4), pydocstyle (D), pydoclint (DOC).
-select = ["E", "F", "I", "B", "UP", "SIM", "C4", "RUF", "PGH", "D", "DOC"]
+# flake8-simplify (SIM), comprehensions (C4), ruff (RUF), pygrep-hooks (PGH),
+# pydocstyle (D). NOTE: `DOC` (pydoclint) is deliberately omitted — it only runs
+# under ruff's unstable `preview`, so selecting it is a silent no-op + a warning.
+select = ["E", "F", "I", "B", "UP", "SIM", "C4", "RUF", "PGH", "D"]
 ignore = ["E501"]
 
 [tool.ruff.lint.pydocstyle]
 # Google style without types — type annotations are the source of truth (mypy).
+# (`convention` selects which D rules run; it does not by itself reject a NumPy
+# `Parameters` block — the no-types Args/Returns style is upheld by review/agents.)
 convention = "google"
 
 [tool.ruff.lint.flake8-bugbear]
@@ -88,6 +92,9 @@ markers = [
     "slow: tests taking >1s — excluded from fast tier",
     "integration: tests requiring external services or filesystem",
     "long: tests too expensive for the default gate",
+    # Uncomment when you opt into the golden behavior-regression oracle
+    # (set `golden=GoldenConfig()` in .pyclawd/config.py — see `pyclawd-golden`):
+    # "golden: behavior-regression snapshot test (compared via `pyclawd golden`)",
 ]
 filterwarnings = [
     "error",

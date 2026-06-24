@@ -19,6 +19,13 @@ optimization*):
   core).
 - **No pickle.** The canonical form is JSON-serializable; an unsupported type is
   a loud error asking for an explicit serializer, never a silent pickle.
+- **numpy values are accepted inline.** When numpy is installed, an ``np.ndarray``
+  is canonicalized to nested lists (via ``.tolist()``, so float rounding and
+  NaN/Inf handling still apply) and numpy scalars (``np.floating`` /
+  ``np.integer`` / ``np.bool_``) reduce to plain ``float`` / ``int`` / ``bool``.
+  numpy is an *optional* dependency imported lazily — absent it, behavior is the
+  unchanged pure-python path. Large arrays stored as a hash + ``.npz`` sidecar
+  remain a deliberately deferred future enhancement, not this inline path.
 
 The flow: a ``golden`` fixture computes a value, canonicalizes it (rounding floats
 to ``precision`` decimals so the fast-path hash is stable), and either **records**
@@ -38,6 +45,29 @@ from typing import Any
 Canonical = Any
 
 
+def _as_numpy(value: object) -> Any:
+    """Return the ``numpy`` module if *value* is a numpy array/scalar, else ``None``.
+
+    numpy is an **optional** dependency: it is imported lazily here so the engine
+    works unchanged (pure-python path) when numpy is absent. The module handle is
+    returned (rather than a bool) so the caller can reuse it for ``isinstance``
+    checks against ``np.floating`` / ``np.integer`` / ``np.bool_``.
+
+    Args:
+        value: The candidate snapshot value to classify.
+
+    Returns:
+        The imported ``numpy`` module when *value* is an ``np.ndarray`` or
+        ``np.generic`` scalar, otherwise ``None`` (including when numpy is not
+        installed).
+    """
+    try:
+        import numpy as np
+    except ImportError:
+        return None
+    return np if isinstance(value, (np.ndarray, np.generic)) else None
+
+
 class GoldenError(AssertionError):
     """A snapshot drifted from its committed baseline beyond tolerance.
 
@@ -55,7 +85,9 @@ def canonicalize(value: Any, precision: int) -> Canonical:
 
     Args:
         value: The snapshot value — a float, int, bool, str, ``None``, or a
-            (possibly nested) list/tuple/dict of those.
+            (possibly nested) list/tuple/dict of those. When numpy is installed,
+            an ``np.ndarray`` (canonicalized via ``.tolist()``) and numpy scalars
+            (``np.floating`` / ``np.integer`` / ``np.bool_``) are also accepted.
         precision: Number of decimal places to round floats to.
 
     Returns:
@@ -79,6 +111,19 @@ def canonicalize(value: Any, precision: int) -> Canonical:
         return [canonicalize(v, precision) for v in value]
     if isinstance(value, dict):
         return {str(k): canonicalize(value[k], precision) for k in sorted(value, key=str)}
+    np = _as_numpy(value)
+    if np is not None:
+        if isinstance(value, np.ndarray):
+            # Recurse on the nested-list form so rounding + NaN/Inf handling apply.
+            return canonicalize(value.tolist(), precision)
+        # numpy scalars (np.generic). Order matters: np.bool_ is NOT an np.integer,
+        # but check it first so a boolean never falls through to the integer branch.
+        if isinstance(value, np.bool_):
+            return canonicalize(bool(value), precision)
+        if isinstance(value, np.integer):
+            return canonicalize(int(value), precision)
+        if isinstance(value, np.floating):
+            return canonicalize(float(value), precision)
     raise GoldenError(
         f"golden: no canonical form for type {type(value).__name__!r}. "
         "Pass a float/int/str/bool/None or a nested list/dict of those, "
@@ -264,11 +309,54 @@ class GoldenStore:
         """Merge-record *entry* under *key*, leaving every other key untouched."""
         self._data[key] = entry
 
+    def keys(self) -> list[str]:
+        """Return all recorded snapshot keys in this store."""
+        return list(self._data)
+
+    def remove(self, key: str) -> bool:
+        """Drop *key* if present; return whether anything was removed."""
+        return self._data.pop(key, None) is not None
+
+    def is_empty(self) -> bool:
+        """Whether the store holds no entries (used to prune empty files)."""
+        return not self._data
+
     def save(self) -> None:
         """Write the store back to disk as stable, diff-friendly JSON."""
         self.path.parent.mkdir(parents=True, exist_ok=True)
         text = json.dumps(self._data, indent=2, sort_keys=True) + "\n"
         self.path.write_text(text)
+
+
+def module_baseline_path(baseline_dir: Path, module_stem: str) -> Path:
+    """Resolve the baseline JSON path for a test module under *baseline_dir*.
+
+    The single source of truth shared by the pytest plugin (which records/reads a
+    module's baseline) and the ``pyclawd golden`` command layer (which scans them),
+    so the two can never disagree on where a baseline lives.
+
+    Args:
+        baseline_dir: The configured baseline directory (``GoldenConfig.baseline_dir``).
+        module_stem: The test module's file stem (e.g. ``"test_minimize"``).
+
+    Returns:
+        ``<baseline_dir>/<module_stem>.json``.
+    """
+    return baseline_dir / f"{module_stem}.json"
+
+
+def iter_baseline_files(baseline_dir: Path) -> list[Path]:
+    """List the baseline JSON files under *baseline_dir* (sorted, empty if absent).
+
+    Args:
+        baseline_dir: The configured baseline directory.
+
+    Returns:
+        Sorted ``*.json`` paths directly under *baseline_dir*.
+    """
+    if not baseline_dir.is_dir():
+        return []
+    return sorted(baseline_dir.glob("*.json"))
 
 
 class Recorder:

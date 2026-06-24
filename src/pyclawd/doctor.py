@@ -19,6 +19,8 @@ import platform
 import shutil
 import subprocess
 import sys
+from pathlib import Path
+from types import ModuleType
 
 from rich.console import Console
 from rich.table import Table
@@ -29,7 +31,7 @@ from .project import FAIL, OK, WARN, Check, Project
 _MARK = {OK: "[green]✓[/green]", WARN: "[yellow]![/yellow]", FAIL: "[red]✗[/red]"}
 
 
-def _module_version(mod) -> str:
+def _module_version(mod: ModuleType) -> str:
     v = getattr(mod, "__version__", None)
     if v:
         return str(v)
@@ -37,7 +39,7 @@ def _module_version(mod) -> str:
         from importlib.metadata import version
 
         return version(mod.__name__.split(".")[0])
-    except Exception:  # noqa: BLE001
+    except Exception:
         return "?"
 
 
@@ -89,7 +91,7 @@ def _check_pyclawd_compat(declared: str) -> Check | None:
         WARN,
         "pyclawd compat",
         f"config built on pyclawd {declared}, running {running} — "
-        "review CHANGELOG; migration may be needed",
+        f"`pyclawd changelog --since {declared}`, then the `pyclawd-upgrade` skill",
     )
 
 
@@ -117,7 +119,7 @@ def _check_import(name: str, required: bool) -> Check:
     try:
         mod = importlib.import_module(name)
         return Check(OK, name, _module_version(mod))
-    except Exception as exc:  # noqa: BLE001 - report any import failure
+    except Exception as exc:
         return Check(FAIL if required else WARN, name, f"not importable ({type(exc).__name__})")
 
 
@@ -135,6 +137,15 @@ def _check_repo(project: Project) -> list[Check]:
         return [Check(WARN, "repo root", "not found — run pyclawd from inside the project repo")]
 
     checks = [Check(OK, "repo root", str(root))]
+
+    # root_markers are a sanity check: files that should exist at the detected root.
+    if project.root_markers:
+        missing = [m for m in project.root_markers if not (root / m).exists()]
+        if missing:
+            checks.append(Check(WARN, "root markers", f"missing at root: {', '.join(missing)}"))
+        else:
+            checks.append(Check(OK, "root markers", f"{len(project.root_markers)} present"))
+
     for tool in project.doctor.tool_files:
         p = root / tool
         if not p.exists():
@@ -210,7 +221,7 @@ def _check_docs(project: Project) -> list[Check]:
     try:
         importlib.import_module("jupyter_cache")
         checks.append(Check(OK, "jupyter-cache", "available (enables `pyclawd docs failures`)"))
-    except Exception:  # noqa: BLE001 - absence is a caveat, not a failure
+    except Exception:
         checks.append(
             Check(
                 WARN,
@@ -221,7 +232,69 @@ def _check_docs(project: Project) -> list[Check]:
     return checks
 
 
-def _check_git(root) -> Check:
+def _check_golden(project: Project) -> list[Check]:
+    """Golden-oracle config + baseline inventory, surfaced only when configured.
+
+    Emits nothing when the project configures no golden suite (golden is optional,
+    exactly like docs). When configured it reports the marker + baseline directory
+    and a count of recorded baseline files, WARNing when none exist yet so the
+    bless step (``pyclawd golden update``) is discoverable.
+
+    Args:
+        project: The loaded project config.
+
+    Returns:
+        Zero rows when ``project.golden is None``; otherwise 1-2 summary rows.
+    """
+    if project.golden is None:
+        return []
+    from .golden import iter_baseline_files
+
+    g = project.golden
+    checks: list[Check] = [Check(OK, "golden", f"marker {g.marker!r}, baseline {g.baseline_dir}")]
+
+    if project.root is None:
+        checks.append(
+            Check(WARN, "golden baselines", "repo root unknown — cannot scan baseline dir")
+        )
+        return checks
+
+    n = len(iter_baseline_files(project.path(g.baseline_dir)))
+    if n:
+        checks.append(Check(OK, "golden baselines", f"{n} module file(s)"))
+    else:
+        checks.append(
+            Check(WARN, "golden baselines", "none recorded yet — run `pyclawd golden update`")
+        )
+    return checks
+
+
+def _check_skills() -> Check | None:
+    """WARN when user-scope pyclawd skills have drifted from the running pyclawd.
+
+    Skills are **copied** into ``~/.claude/skills`` (so they ship with the project's
+    agent setup), which means a pyclawd upgrade does not refresh them automatically.
+    This surfaces that staleness — the fix is ``pyclawd skills install``, which
+    auto-refreshes drifted skills. Returns ``None`` (no row) when no skills are
+    installed (the user opted out) so it never nags a skill-free project.
+    """
+    from .commands.skills import drifted_installed_skills, user_skills_dir
+
+    try:
+        drifted = drifted_installed_skills()
+    except Exception:
+        return None
+    target = user_skills_dir()
+    if not drifted:
+        return None
+    return Check(
+        WARN,
+        "skills",
+        f"{len(drifted)} stale in {target}: {', '.join(drifted)} — run `pyclawd skills install`",
+    )
+
+
+def _check_git(root: Path | None) -> Check:
     if root is None:
         return Check(WARN, "git branch", "n/a")
     try:
@@ -234,19 +307,18 @@ def _check_git(root) -> Check:
         if out.returncode == 0:
             return Check(OK, "git branch", out.stdout.strip())
         return Check(WARN, "git branch", "not a git work tree")
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         return Check(WARN, "git branch", f"unavailable ({type(exc).__name__})")
 
 
 def collect(project: Project | None = None) -> list[Check]:
     """Build the list of health checks from the loaded project config.
 
-    Parameters
-    ----------
-    project : Project or None, optional
-        The loaded project. If ``None``, it is discovered via
-        :func:`~pyclawd.discovery.load_project`; when no project is found the generic
-        checks still run and a WARN is added pointing at the missing config.
+    Args:
+        project: The loaded project. If ``None``, it is discovered via
+            :func:`~pyclawd.discovery.load_project`; when no project is found the
+            generic checks still run and a WARN is added pointing at the missing
+            config.
     """
     if project is None:
         project = load_project()
@@ -279,13 +351,17 @@ def collect(project: Project | None = None) -> list[Check]:
         hook_name = getattr(project.extra_doctor_checks, "__name__", "extra_doctor_checks")
         try:
             checks += list(project.extra_doctor_checks())
-        except Exception as exc:  # noqa: BLE001 - a bad hook is a check failure, not a crash
+        except Exception as exc:
             checks.append(Check(FAIL, hook_name, f"raised {type(exc).__name__}: {exc}"))
 
     checks += [_check_import(d, required=True) for d in project.doctor.core_deps]
     checks += [_check_import(d, required=False) for d in project.doctor.dev_deps]
     checks += [_check_binary(name, hint) for name, hint in project.doctor.binaries]
     checks += _check_docs(project)
+    checks += _check_golden(project)
+    skills_check = _check_skills()
+    if skills_check is not None:
+        checks.append(skills_check)
     checks += _check_repo(project)
     checks.append(_check_git(project.root))
     return checks
@@ -296,7 +372,7 @@ def run_doctor() -> int:
     console = Console()
     try:
         project = load_project()
-    except ConfigError as exc:
+    except (ConfigError, TypeError, ImportError) as exc:
         console.print(f"[red]✗ {exc}[/red]")
         return 2
     checks = collect(project)
@@ -341,7 +417,7 @@ def dump_json(project: Project | None = None) -> int:
     if project is None:
         try:
             project = load_project()
-        except ConfigError as exc:
+        except (ConfigError, TypeError, ImportError) as exc:
             json.dump({"error": str(exc)}, sys.stdout)
             sys.stdout.write("\n")
             return 2

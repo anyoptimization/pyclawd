@@ -1,10 +1,16 @@
 # AGENTS.md — working in {{name}}
 
-This is the agent doctrine for **{{name}}**, a project driven by
-[pyclawd](https://github.com/{{owner}}/pyclawd) — a project-generic Python
-dev-task CLI. One config file (`.pyclawd/config.py`) describes the project, and
-humans and AI agents drive it the same way. This file is the commands-first
-contract for agents; `README.md` covers the human-facing overview.
+**{{name}}** is driven by [pyclawd](https://github.com/{{owner}}/pyclawd), a
+config-driven Python dev-task CLI: one file (`.pyclawd/config.py`) describes the
+project and `pyclawd <verb>` is the single contract for every task — humans and AI
+agents drive it the same way.
+
+This file is the **operational contract** — the commands, the boundaries, the
+non-negotiables. It is always in your context, so follow it. For the *why* behind
+the rules — the testing taxonomy, typing, packaging, and docstring doctrine, with
+examples — invoke the **`pyclawd` skill** (Claude Code; installed user-scope and
+shared across every pyclawd project). In short: **AGENTS.md is what to run; the
+skill is how to write good code.**
 
 ## Critical rule — how to run Python
 
@@ -28,48 +34,58 @@ root on `PYTHONPATH`. Bare `python` misses the env and the in-tree source.
 | Health-check the dev env | `pyclawd doctor` |
 | Run Python in the env | `pyclawd python <file>` · `-m <mod>` · `-c <code>` |
 | Fast smoke (<30s, no integration) | `pyclawd test fast` |
-| Default gate (no slow, integration OK) | `pyclawd test run` |
-| Full suite (incl. slow + integration) | `pyclawd test all` |
+| Default gate (no slow) | `pyclawd test run` |
+| Full suite (incl. slow + long) | `pyclawd test all` |
 | Select tests | `pyclawd test -k <kw>` · `pyclawd test tests/path::node` |
 | Fix-loop | `pyclawd test failures` → `pyclawd test fix` → `pyclawd test run` |
+| Coverage | `pyclawd coverage [--check] [--html]` |
+| Prove behavior unchanged | `pyclawd golden` · `golden update [-k EXPR]` · `status` · `prune` |
 | Lint / autofix | `pyclawd lint` · `pyclawd lint --fix` · `pyclawd lint <file...>` |
 | Format / check | `pyclawd format` · `pyclawd format --check` · `pyclawd format <file...>` |
 | Type-check | `pyclawd typecheck` · `pyclawd typecheck <file...>` |
 | **Aggregate quality gate** | `pyclawd check` · `--fix` · `--skip <verb>` · `--fail-fast` · `pyclawd check <file...>` |
-| Build / dist / clean | `pyclawd compile` · `pyclawd dist` · `pyclawd clean` |
+| Build / dist / clean | `pyclawd compile` · `pyclawd dist` · `pyclawd clean [--ext]` |
+| Docs (if configured) | `pyclawd docs build\|run\|render\|serve\|status\|failures\|exec <page>` |
+| Code map (file → description) | `pyclawd ls [DIR]` · `pyclawd ls --missing` |
 | Manage agent skills | `pyclawd skills list` · `pyclawd skills install` |
-| Repo root / version | `pyclawd root` · `pyclawd version` |
+| Version + config drift | `pyclawd version` · `pyclawd version --json` |
+| What changed (since config) | `pyclawd changelog [--since V] [--full]` |
+| Repo root | `pyclawd root` |
 
-`pyclawd check` runs all quality steps (format-check → lint → typecheck)
-**regardless of individual failures**, then **test** (only if quality passed). Each
-failing quality step is tee'd to a log file whose path appears in the summary —
-read those files to see the full output. Use `--skip <verb>` (repeatable) to omit a
-step entirely, `--fail-fast` to stop at the first failure, and `--fix` to apply
-format+lint autofixes in-place before checking. Build/dist/clean and docs commands
-only do real work when the project configures them; otherwise they degrade
-gracefully. Override config discovery with `--config PATH` (or `PYCLAWD_CONFIG`);
-by default pyclawd walks up from cwd to find `.pyclawd/config.py`.
+Run `pyclawd config` first — it shows the exact command every verb resolves to and
+the `PYCLAWD_*` override knobs. `pyclawd check` runs all quality steps (format-check
+→ lint → typecheck) **regardless of individual failures**, streaming output inline,
+then runs **test** only if quality passed. Use `--skip <verb>` (repeatable) to omit
+a step, `--fail-fast` to stop at the first failure, `--fix` to apply format+lint
+autofixes in place, and `--log` to also write each step's output to a file (CI
+artifacts). Build/dist/clean and docs commands only do real work when the project
+configures them; otherwise they degrade gracefully (exit 2 = not configured).
 
-## Test tiers — what each runs
+## Test tiers
 
-| Tier | Marker filter | When to use |
+| Tier | Marker filter | When |
 |---|---|---|
 | `fast` | `not slow and not integration` | After every edit — <30s smoke |
 | `run` (default) | `not slow` | Before opening a PR |
 | `all` | _(no filter)_ | Nightly / pre-release |
 
-Mark slow tests with `@pytest.mark.slow`, tests needing live services with
-`@pytest.mark.integration`. Unmarked tests run in every tier. Never mark
-tests `@pytest.mark.fast` — unmarked is the default.
+Mark slow tests `@pytest.mark.slow`, tests needing live services
+`@pytest.mark.integration`. Unmarked tests run in every tier — never mark a test
+`fast`. The fix-loop and failure taxonomy live in the `pyclawd-tests` skill.
 
-## Prerequisites
+## Behavior oracle (golden)
 
-pyclawd orchestrates tools; each command needs its tool present (run `pyclawd
-doctor` to see what's missing). Typically: **pytest** for `test` (+ pytest-xdist
-for `test fast`), **ruff** for `lint`/`format`, **mypy** for `typecheck`. If this
-project builds docs, `pyclawd docs render` also needs the **pandoc** system binary
-and a `./docs` runner, and `pyclawd docs failures` needs **jupyter-cache**. The
-exact tools live in `.pyclawd/config.py` — that file is the source of truth.
+`pyclawd check` proves code **clean** (format/lint/typecheck/test); it cannot prove
+behavior **unchanged** — a clean edit can still move a number. `pyclawd golden`
+closes that gap: it compares observable outputs against **committed** baselines and
+fails on drift (tolerance is the gate; the stored hash is only a fast path, so
+baselines survive cross-platform float jitter; values are inline so `git diff` shows
+`0.925 → 0.522`). Workflow: **agents compare, humans bless** — `pyclawd golden`
+gates, `pyclawd golden update [-k EXPR]` records an *intended* change (merges, never
+wipes others), then a human reviews the baseline `git diff` and commits; `status`
+lists snapshots, `prune` drops orphaned ones. Opt-in via `GoldenConfig` (unset →
+exit 2). Tests use `@pytest.mark.golden` + a `golden` fixture; full doctrine in the
+**`pyclawd-golden`** skill.
 
 ## Architecture — generic core + per-project config
 
@@ -81,24 +97,12 @@ root. The `Project` model groups config: `QualityConfig` (lint/format/typecheck)
 (deps/binaries to probe). Read `.pyclawd/config.py` before assuming how this
 project is wired — it is the single source of truth for env, paths, and checks.
 
-**Every module** opens with a one-line docstring. `pyclawd ls --missing` finds
-gaps — keep it empty. **Docstrings use Google style, no types** (annotations are
-the source of truth; `pyclawd lint` enforces via `D`/`DOC` ruff rules):
-
-```python
-def foo(x: int) -> str:
-    """One-line summary.
-
-    Args:
-        x: Description (no type — it's in the signature).
-
-    Returns:
-        Description of the return value.
-    """
-```
-
-NumPy-style (`Parameters\n----------`) will fail `pyclawd lint`. Tests are
-exempt from docstring rules.
+**Every module opens with a one-line docstring** — `pyclawd ls --missing` finds the
+gaps; keep it empty. **Docstrings use Google style, no types** (`Args:` / `Returns:`
+/ `Raises:` with plain descriptions — annotations carry the types). `pyclawd lint`
+checks docstring style via ruff's `D` rules (Google convention) — write `Args:`/
+`Returns:`, not NumPy `Parameters`/`----------`. The `pyclawd` skill has examples
+and shows how to change the convention when adopting an existing repo.
 
 ## Boundaries
 
@@ -119,58 +123,24 @@ exempt from docstring rules.
 - Never commit secrets, tokens, or credentials.
 - Never weaken or delete a test to make a suite pass.
 - Never leave the tree with a failing `pyclawd check`.
-- Never use `git commit --no-verify` to bypass pre-commit hooks — fix the underlying issue instead.
-
-## Existing repos — quality baseline
-
-If `pyclawd check` is red on a repo you didn't just scaffold, it has a
-pre-existing quality backlog. **Do not reformat or re-lint files you aren't
-otherwise touching** — that inflates your diff with unrelated churn and makes
-review harder.
-
-Two paths:
-
-**A — Preferred: land a baseline PR first** (one commit, zero logic change):
-```bash
-pyclawd format          # reformat everything
-pyclawd lint --fix      # autofix all fixable lint
-pyclawd check           # now green; gate is live for all future work
-```
-
-**B — If the baseline PR is too disruptive right now**: scope quality checks
-to only the files you are changing:
-```bash
-pyclawd format src/mypkg/mymodule.py
-pyclawd lint   src/mypkg/mymodule.py
-```
-Your changes stay clean; the repo-wide backlog is a separate concern. Document
-in your PR description that the repo has a pre-existing quality backlog.
-
-### Docstring convention — opting out or changing
-
-The scaffold defaults to **Google style** enforced by ruff `D`/`DOC` rules.
-For repos with an existing convention, configure it once in `pyproject.toml`
-— no docstrings need rewriting:
-
-```toml
-# NumPy-style repo (scientific / pandas / numpy ecosystem)
-[tool.ruff.lint.pydocstyle]
-convention = "numpy"
-
-# No docstring enforcement (legacy codebase, gradual adoption)
-[tool.ruff.lint]
-ignore = ["D", "DOC"]
-
-# Enforce style on existing docstrings but don't require them everywhere yet
-[tool.ruff.lint]
-ignore = ["D100", "D101", "D102", "D103", "D104", "D105", "D106", "D107"]
-```
-
-> **Before writing any docstring:** read `pyproject.toml` to check which
-> convention this repo uses. Match the existing style — don't convert.
+- Never use `git commit --no-verify` to bypass pre-commit hooks — fix the cause.
+- Never wire `pyclawd golden update` into an autonomous loop — agents compare,
+  humans bless.
 
 ## How you know you're done
 
 - `pyclawd check` is green (format-check, lint, typecheck, and tests all ✓).
 - `pyclawd doctor` exits 0 — no FAILs.
+- `pyclawd ls --missing` is empty — every file has a one-line description.
 - Behavior is verified by tests, not just by inspection.
+
+---
+
+**Going deeper.** This file is the contract. For the doctrine behind it, invoke the
+Claude Code skills: **`pyclawd`** (mental model + best practices) is the umbrella;
+**`pyclawd-tests`**, **`pyclawd-quality`**, **`pyclawd-doctor`**, **`pyclawd-docs`**,
+and **`pyclawd-golden`** are the focused deep-dives; **`pyclawd-upgrade`** migrates this
+project after pyclawd itself is updated (when `pyclawd version` shows config drift).
+They are generic (not specific to this repo) and update centrally when pyclawd is
+upgraded — which is exactly why the deep doctrine lives there and not duplicated into
+this file.

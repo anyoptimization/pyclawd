@@ -44,14 +44,10 @@ FAIL = "fail"
 class Check:
     """The result of a single environment health check.
 
-    Parameters
-    ----------
-    status : str
-        One of :data:`OK`, :data:`WARN`, or :data:`FAIL`.
-    name : str
-        Short label for the thing being checked (e.g. ``"pandoc"``).
-    detail : str, optional
-        Human-readable detail, such as a version string or a remediation hint.
+    Args:
+        status: One of :data:`OK`, :data:`WARN`, or :data:`FAIL`.
+        name: Short label for the thing being checked (e.g. ``"pandoc"``).
+        detail: Human-readable detail, such as a version string or a remediation hint.
     """
 
     status: str
@@ -106,26 +102,19 @@ class DocsConfig:
     will show nothing / report the missing backend. ``pyclawd doctor`` surfaces this
     when docs are configured.
 
-    Parameters
-    ----------
-    runner : list of str
-        Argv prefix that invokes the project's documentation toolchain, e.g.
-        ``["uvx", "--from", "./docs", "mydocs"]``. Sub-commands are appended.
-        Heavy docs deps (sphinx/nbsphinx/jupyter-cache) live in that isolated
-        toolchain, not the project env.
-    source_dir : str
-        Root-relative directory holding the documentation sources
-        (e.g. ``"docs/source"``).
-    cache_dir : str
-        Root-relative jupyter-cache directory (e.g. ``"docs/.jupyter_cache"``).
-    cache_db : str
-        Root-relative path to the jupyter-cache SQLite database
-        (e.g. ``"docs/.jupyter_cache/global.db"``).
-    build_html : str
-        Root-relative directory where rendered HTML is written
-        (e.g. ``"docs/build/html"``).
-    branch : str
-        Git branch the ``--changed`` build diffs against (e.g. ``"main"``).
+    Args:
+        runner: Argv prefix that invokes the project's documentation toolchain, e.g.
+            ``["uvx", "--from", "./docs", "mydocs"]``. Sub-commands are appended.
+            Heavy docs deps (sphinx/nbsphinx/jupyter-cache) live in that isolated
+            toolchain, not the project env.
+        source_dir: Root-relative directory holding the documentation sources
+            (e.g. ``"docs/source"``).
+        cache_dir: Root-relative jupyter-cache directory (e.g. ``"docs/.jupyter_cache"``).
+        cache_db: Root-relative path to the jupyter-cache SQLite database
+            (e.g. ``"docs/.jupyter_cache/global.db"``).
+        build_html: Root-relative directory where rendered HTML is written
+            (e.g. ``"docs/build/html"``).
+        branch: Git branch the ``--changed`` build diffs against (e.g. ``"main"``).
     """
 
     runner: list[str]
@@ -151,26 +140,20 @@ class TestConfig:
     - any extra key (e.g. ``"examples"`` / ``"docs"``) — a per-category suite,
       runnable as ``pyclawd test examples`` / ``pyclawd test docs``.
 
-    Parameters
-    ----------
-    tests_dir : str
-        Root-relative directory containing the unit tests (e.g. ``"tests/"``).
-    classname_prefix : str
-        Dotted prefix junit assigns to test classnames, used to reconstruct
-        path-ish node ids (e.g. ``"tests."``).
-    integration_files : list of str
-        Root-relative test files that are their own integration suites and are
-        deselected by the unit tiers (e.g. ``["tests/test_examples.py", ...]``).
-    markers : dict of str to str
-        Tier name → pytest ``-m`` marker expression (see above). A tier the
-        project does not define simply applies no ``-m`` filter (it is **not** an
-        error to omit ``fast`` or ``all``), so the tier set is fully customisable.
-    jobs : str, optional
-        pytest-xdist worker count applied to the logged tiers (``run`` / ``fast`` /
-        ``all`` and the ``check`` test step). ``"auto"`` (the default) runs every
-        tier in parallel across all cores; ``""`` runs serial; an integer string
-        (e.g. ``"4"``) pins the worker count. Requires ``pytest-xdist`` (in the
-        scaffold's dev group). An explicit ``-n`` in the command always wins.
+    Args:
+        tests_dir: Root-relative directory containing the unit tests (e.g. ``"tests/"``).
+        classname_prefix: Dotted prefix junit assigns to test classnames, used to reconstruct
+            path-ish node ids (e.g. ``"tests."``).
+        integration_files: Root-relative test files that are their own integration suites and are
+            deselected by the unit tiers (e.g. ``["tests/test_examples.py", ...]``).
+        markers: Tier name → pytest ``-m`` marker expression (see above). A tier the
+            project does not define simply applies no ``-m`` filter (it is **not** an
+            error to omit ``fast`` or ``all``), so the tier set is fully customisable.
+        jobs: pytest-xdist worker count applied to the logged tiers (``run`` / ``fast`` /
+            ``all`` and the ``check`` test step). ``"auto"`` (the default) runs every
+            tier in parallel across all cores; ``""`` runs serial; an integer string
+            (e.g. ``"4"``) pins the worker count. Requires ``pytest-xdist`` (in the
+            scaffold's dev group). An explicit ``-n`` in the command always wins.
     """
 
     tests_dir: str
@@ -189,25 +172,18 @@ class QualityConfig:
     layer. The aggregate ``pyclawd check`` gate runs the verbs named in
     :attr:`check_sequence`, in order, fail-fast.
 
-    Parameters
-    ----------
-    lint_cmd : list of str
-        Argv that lints without mutating files (e.g. ``["ruff", "check"]``).
-    lint_fix_cmd : list of str
-        Argv that lints and applies autofixes (e.g. ``["ruff", "check", "--fix"]``).
-    format_cmd : list of str
-        Argv that rewrites files to the canonical format
-        (e.g. ``["ruff", "format"]``).
-    format_check_cmd : list of str
-        Non-mutating format check, suitable as a CI gate
-        (e.g. ``["ruff", "format", "--check"]``).
-    typecheck_cmd : list of str
-        Argv that type-checks the project (e.g. ``["mypy", "src"]``).
-    check_sequence : list of str
-        Ordered verbs the aggregate ``pyclawd check`` runs. Recognised verbs are
-        ``"format-check"``, ``"lint"``, ``"typecheck"``, and ``"test"`` (which
-        maps to the default test tier). Defaults to
-        ``["format-check", "lint", "typecheck", "test"]``.
+    Args:
+        lint_cmd: Argv that lints without mutating files (e.g. ``["ruff", "check"]``).
+        lint_fix_cmd: Argv that lints and applies autofixes (e.g. ``["ruff", "check", "--fix"]``).
+        format_cmd: Argv that rewrites files to the canonical format
+            (e.g. ``["ruff", "format"]``).
+        format_check_cmd: Non-mutating format check, suitable as a CI gate
+            (e.g. ``["ruff", "format", "--check"]``).
+        typecheck_cmd: Argv that type-checks the project (e.g. ``["mypy", "src"]``).
+        check_sequence: Ordered verbs the aggregate ``pyclawd check`` runs. Recognised verbs are
+            ``"format-check"``, ``"lint"``, ``"typecheck"``, and ``"test"`` (which
+            maps to the default test tier). Defaults to
+            ``["format-check", "lint", "typecheck", "test"]``.
     """
 
     lint_cmd: list[str] = field(default_factory=list)
@@ -224,16 +200,12 @@ class QualityConfig:
 class CoverageConfig:
     """Coverage measurement settings for ``pyclawd coverage``.
 
-    Parameters
-    ----------
-    source : list of str
-        Packages or directories to measure, passed as ``--cov=<src>`` to
-        pytest-cov (e.g. ``["src/mypkg"]``). At least one entry is required.
-    threshold : int
-        Minimum acceptable coverage percentage used by ``pyclawd coverage
-        --check`` (``--cov-fail-under=<threshold>``). Defaults to ``80``.
-    branch : bool
-        Enable branch coverage (``--cov-branch``). Defaults to ``True``.
+    Args:
+        source: Packages or directories to measure, passed as ``--cov=<src>`` to
+            pytest-cov (e.g. ``["src/mypkg"]``). At least one entry is required.
+        threshold: Minimum acceptable coverage percentage used by ``pyclawd coverage
+            --check`` (``--cov-fail-under=<threshold>``). Defaults to ``80``.
+        branch: Enable branch coverage (``--cov-branch``). Defaults to ``True``.
     """
 
     source: list[str]
@@ -267,21 +239,46 @@ class DescriptionConfig:
 
 
 @dataclass(frozen=True)
+class GoldenConfig:
+    """Behavior-regression oracle settings for ``pyclawd golden``.
+
+    The static gate (lint/format/typecheck/test) proves code is *clean*; golden
+    proves behavior is *unchanged* by comparing observable outputs against
+    committed snapshot baselines. The tolerances live here as **defaults** — each
+    snapshot may override them per ``golden(...)`` call, and the override travels
+    *in* the baseline entry, not centrally. See the ``pyclawd-golden`` skill.
+
+    Args:
+        baseline_dir: Root-relative directory holding the committed baseline JSON
+            files (one per test module, named by module stem) and any sidecar
+            artifacts. Defaults to ``"tests/golden"``.
+        marker: pytest marker that selects golden tests, used by ``pyclawd golden``
+            as ``-m <marker>``. Defaults to ``"golden"``.
+        precision: Default decimal places floats are rounded to before the
+            fast-path hash. The hash is only an optimization; tolerance is the
+            gate. Defaults to ``10``.
+        rtol: Default relative tolerance for the value comparison. Defaults to ``1e-9``.
+        atol: Default absolute tolerance for the value comparison. Defaults to ``1e-12``.
+    """
+
+    baseline_dir: str = "tests/golden"
+    marker: str = "golden"
+    precision: int = 10
+    rtol: float = 1e-9
+    atol: float = 1e-12
+
+
+@dataclass(frozen=True)
 class DoctorConfig:
     r"""Health-check settings for ``pyclawd doctor``.
 
-    Parameters
-    ----------
-    core_deps : list of str
-        Runtime imports that must succeed; a missing one is a :data:`FAIL`.
-    dev_deps : list of str
-        Dev/docs imports; a missing one only :data:`WARN`\\ s.
-    tool_files : list of str
-        Root-relative files that must exist and be executable
-        (e.g. ``["tools/python", ...]``).
-    binaries : list of tuple of (str, str)
-        System binaries to probe via ``shutil.which`` as
-        ``(name, install_hint)`` pairs (e.g. ``[("pandoc", "conda install …")]``).
+    Args:
+        core_deps: Runtime imports that must succeed; a missing one is a :data:`FAIL`.
+        dev_deps: Dev/docs imports; a missing one only :data:`WARN`\\ s.
+        tool_files: Root-relative files that must exist and be executable
+            (e.g. ``["tools/python", ...]``).
+        binaries: System binaries to probe via ``shutil.which`` as
+            ``(name, install_hint)`` pairs (e.g. ``[("pandoc", "conda install …")]``).
     """
 
     core_deps: list[str]
@@ -303,93 +300,78 @@ class Project:
     object in its ``.pyclawd/config.py``. The loader fills in :attr:`root` (the
     discovered repository root) after import; the user never sets it.
 
-    Parameters
-    ----------
-    name : str
-        Project name (e.g. ``"myproject"``).
-    conda_env : str or None
-        Conda env pyclawd expects to run in, or ``None`` if env-agnostic. This is
-        **advisory** — it does not select the interpreter (see :attr:`python_cmd`);
-        ``pyclawd doctor`` only WARNs when the active env differs.
-    root_markers : list of str
-        Root-relative files that should exist at the repository root, used as a
-        sanity check (e.g. ``["mypkg/__init__.py", "setup.py"]``).
-    test : TestConfig
-        Test-suite settings and tier markers.
-    doctor : DoctorConfig
-        Health-check settings.
-    python_cmd : list of str, optional
-        The argv prefix used to launch the project's Python — this is *how* every
-        ``pyclawd python`` / ``test`` / ``compile`` invocation runs code, so it
-        makes the interpreter fully project-defined and extensible. One field
-        spans every backend:
+    Args:
+        name: Project name (e.g. ``"myproject"``).
+        conda_env: Conda env pyclawd expects to run in, or ``None`` if env-agnostic. This is
+            **advisory** — it does not select the interpreter (see :attr:`python_cmd`);
+            ``pyclawd doctor`` only WARNs when the active env differs.
+        root_markers: Root-relative files that should exist at the repository root, used as a
+            sanity check (e.g. ``["mypkg/__init__.py", "setup.py"]``).
+        test: Test-suite settings and tier markers.
+        doctor: Health-check settings.
+        python_cmd: The argv prefix used to launch the project's Python — this is *how* every
+            ``pyclawd python`` / ``test`` / ``compile`` invocation runs code, so it
+            makes the interpreter fully project-defined and extensible. One field
+            spans every backend:
 
-        - ``[]`` (the default) → pyclawd's own ``sys.executable`` (install pyclawd
-          into the env you develop in);
-        - explicit venv → ``["/path/.venv/bin/python"]``;
-        - conda (one pyclawd driving many envs) → ``["conda", "run", "-n", "env", "python"]``;
-        - uv → ``["uv", "run", "python"]``.
+            - ``[]`` (the default) → pyclawd's own ``sys.executable`` (install pyclawd
+              into the env you develop in);
+            - explicit venv → ``["/path/.venv/bin/python"]``;
+            - conda (one pyclawd driving many envs) → ``["conda", "run", "-n", "env", "python"]``;
+            - uv → ``["uv", "run", "python"]``.
 
-        The ``PYCLAWD_PYTHON`` environment variable overrides this at runtime
-        (``shlex``-split, so it may be a full command) for one-off interpreter
-        swaps without editing config.
-    pyclawd_version : str, optional
-        The pyclawd version this config was authored against — stamped
-        automatically by ``pyclawd new`` (the running ``pyclawd.__version__``).
-        ``pyclawd doctor`` compares it to the installed pyclawd and WARNs on a
-        ``major.minor`` mismatch, so a project built on an older pyclawd surfaces a
-        "migration may be needed" signal instead of silently drifting. Empty (the
-        default) disables the check.
-    work_dir : str, optional
-        Base directory for pyclawd's transient per-project files — run logs, junit
-        xml, and other scratch artifacts. Empty (the default) uses
-        ``<tempdir>/pyclawd`` (honouring ``$TMPDIR``); set it to keep a project's
-        artifacts somewhere predictable (e.g. ``"/tmp/myproject"`` or
-        ``".pyclawd/work"``). Relative paths resolve against the repo root. The
-        ``PYCLAWD_WORK_DIR`` environment variable overrides it at runtime. Logs live
-        under ``<work_dir>/logs/<category>/``.
-    compile_cmd : list of str, optional
-        Args passed to the dev Python for ``pyclawd compile``
-        (e.g. ``["setup.py", "build_ext", "--inplace"]``). Empty (the default)
-        means the project has no compile step — ``pyclawd compile`` reports that
-        and exits cleanly.
-    dist_cmd : list of str, optional
-        Args passed to the dev Python for ``pyclawd dist`` (e.g.
-        ``["setup.py", "sdist"]``). Empty (the default) means no dist step.
-    clean_targets : list of str, optional
-        Root-relative paths removed by ``pyclawd clean``
-        (e.g. ``["build", "dist", "mypkg.egg-info"]``). Defaults to empty.
-    clean_ext_dir : str, optional
-        Root-relative directory holding compiled artifacts
-        (e.g. ``"mypkg/_compiled"``). Empty (the default) disables ``--ext``.
-    clean_ext_globs : list of str, optional
-        Globs removed under :attr:`clean_ext_dir` when ``pyclawd clean --ext`` runs
-        (e.g. ``["*.c", "*.cpp", "*.so", "*.html"]``). Defaults to empty.
-    src_dir : str, optional
-        Default directory ``pyclawd ls`` lists (the code/source root), relative to
-        the repo root. Defaults to ``src``.
-    descriptions : DescriptionConfig, optional
-        Controls which files the ``"descriptions"`` step (and ``pyclawd ls
-        --missing``) checks for a top-of-file description. Defaults to
-        ``DescriptionConfig()`` — Python/Cython only, no exclusions. See
-        :class:`DescriptionConfig` for the ``include`` / ``exclude`` regex knobs.
-    docs : DocsConfig or None, optional
-        Documentation-build settings, or ``None`` (the default) when the project
-        has no docs. When ``None`` the ``pyclawd docs`` command group is not even
-        registered.
-    quality : QualityConfig or None, optional
-        Code-quality settings for ``pyclawd lint`` / ``format`` / ``typecheck`` /
-        ``check``, or ``None`` (the default) when the project configures no
-        quality toolchain. When ``None`` (or a given command's argv is empty) the
-        affected command self-reports that quality is unconfigured and exits 2
-        rather than crashing.
-    extra_doctor_checks : callable or None, optional
-        Optional hook returning a list of extra :class:`Check` objects, appended
-        to the doctor report (e.g. project import + compiled-extension status).
-        Defaults to ``None``.
-    root : pathlib.Path or None, optional
-        The discovered repository root. **Not set by the user** — the loader
-        fills it in. Defaults to ``None``.
+            The ``PYCLAWD_PYTHON`` environment variable overrides this at runtime
+            (``shlex``-split, so it may be a full command) for one-off interpreter
+            swaps without editing config.
+        pyclawd_version: The pyclawd version this config was authored against — stamped
+            automatically by ``pyclawd new`` (the running ``pyclawd.__version__``).
+            ``pyclawd doctor`` compares it to the installed pyclawd and WARNs on a
+            ``major.minor`` mismatch, so a project built on an older pyclawd surfaces a
+            "migration may be needed" signal instead of silently drifting. Empty (the
+            default) disables the check.
+        work_dir: Base directory for pyclawd's transient per-project files — run logs, junit
+            xml, and other scratch artifacts. Empty (the default) uses
+            ``<tempdir>/pyclawd`` (honouring ``$TMPDIR``); set it to keep a project's
+            artifacts somewhere predictable (e.g. ``"/tmp/myproject"`` or
+            ``".pyclawd/work"``). Relative paths resolve against the repo root. The
+            ``PYCLAWD_WORK_DIR`` environment variable overrides it at runtime. Logs live
+            under ``<work_dir>/logs/<category>/``.
+        compile_cmd: Args passed to the dev Python for ``pyclawd compile``
+            (e.g. ``["setup.py", "build_ext", "--inplace"]``). Empty (the default)
+            means the project has no compile step — ``pyclawd compile`` reports that
+            and exits cleanly.
+        dist_cmd: Args passed to the dev Python for ``pyclawd dist`` (e.g.
+            ``["setup.py", "sdist"]``). Empty (the default) means no dist step.
+        clean_targets: Root-relative paths removed by ``pyclawd clean``
+            (e.g. ``["build", "dist", "mypkg.egg-info"]``). Defaults to empty.
+        clean_ext_dir: Root-relative directory holding compiled artifacts
+            (e.g. ``"mypkg/_compiled"``). Empty (the default) disables ``--ext``.
+        clean_ext_globs: Globs removed under :attr:`clean_ext_dir` when ``pyclawd clean --ext`` runs
+            (e.g. ``["*.c", "*.cpp", "*.so", "*.html"]``). Defaults to empty.
+        src_dir: Default directory ``pyclawd ls`` lists (the code/source root), relative to
+            the repo root. Defaults to ``src``.
+        descriptions: Controls which files the ``"descriptions"`` step (and ``pyclawd ls
+            --missing``) checks for a top-of-file description. Defaults to
+            ``DescriptionConfig()`` — Python/Cython only, no exclusions. See
+            :class:`DescriptionConfig` for the ``include`` / ``exclude`` regex knobs.
+        docs: Documentation-build settings, or ``None`` (the default) when the project
+            has no docs. When ``None`` the ``pyclawd docs`` command group is not even
+            registered.
+        quality: Code-quality settings for ``pyclawd lint`` / ``format`` / ``typecheck`` /
+            ``check``, or ``None`` (the default) when the project configures no
+            quality toolchain. When ``None`` (or a given command's argv is empty) the
+            affected command self-reports that quality is unconfigured and exits 2
+            rather than crashing.
+        coverage: Coverage measurement settings for ``pyclawd coverage``, or ``None`` (the
+            default) when the project configures no coverage. See :class:`CoverageConfig`.
+        golden: Behavior-regression oracle settings for ``pyclawd golden``, or ``None``
+            (the default) when the project configures no golden suite. When ``None``
+            the ``pyclawd golden`` commands self-report and exit 2. See :class:`GoldenConfig`.
+        extra_doctor_checks: Optional hook returning a list of extra :class:`Check` objects,
+            appended to the doctor report (e.g. project import + compiled-extension status).
+            Defaults to ``None``.
+        root: The discovered repository root. **Not set by the user** — the loader
+            fills it in. Defaults to ``None``.
     """
 
     name: str
@@ -416,6 +398,7 @@ class Project:
     docs: DocsConfig | None = None
     quality: QualityConfig | None = None
     coverage: CoverageConfig | None = None
+    golden: GoldenConfig | None = None
 
     extra_doctor_checks: Callable[..., list[Check]] | None = None
     root: Path | None = None

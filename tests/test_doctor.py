@@ -12,7 +12,16 @@ import json
 from pathlib import Path
 
 from pyclawd import doctor
-from pyclawd.project import FAIL, OK, WARN, DocsConfig, DoctorConfig, Project, TestConfig
+from pyclawd.project import (
+    FAIL,
+    OK,
+    WARN,
+    DocsConfig,
+    DoctorConfig,
+    GoldenConfig,
+    Project,
+    TestConfig,
+)
 
 
 def _docs() -> DocsConfig:
@@ -157,7 +166,7 @@ def test_compat_ok_when_matching_running_version():
 def test_compat_warns_on_minor_mismatch():
     c = doctor._check_pyclawd_compat("99.99.0")
     assert c is not None and c.status == WARN
-    assert "migration" in c.detail
+    assert "pyclawd-upgrade" in c.detail  # points at the migration skill
 
 
 def test_compat_row_appears_in_collect_when_declared():
@@ -188,6 +197,40 @@ def test_check_docs_ok_runner_and_reports_jupyter_cache(monkeypatch):
     # jupyter-cache is reported either way (OK if importable here, else WARN).
     assert "jupyter-cache" in rows
     assert rows["jupyter-cache"].status in (OK, WARN)
+
+
+# ---- golden oracle check ----------------------------------------------------
+
+
+def test_check_golden_empty_when_unconfigured():
+    assert doctor._check_golden(_project()) == []  # golden is None → no rows
+
+
+def test_check_golden_warns_when_no_baselines(tmp_path):
+    project = _project(golden=GoldenConfig(), root=tmp_path)
+    rows = {c.name: c for c in doctor._check_golden(project)}
+    assert rows["golden"].status == OK
+    assert "golden" in rows["golden"].detail
+    assert rows["golden baselines"].status == WARN
+    assert "pyclawd golden update" in rows["golden baselines"].detail
+
+
+def test_check_golden_ok_when_baselines_present(tmp_path):
+    baseline_dir = tmp_path / "tests" / "golden"
+    baseline_dir.mkdir(parents=True)
+    (baseline_dir / "test_minimize.json").write_text("{}")
+    project = _project(golden=GoldenConfig(), root=tmp_path)
+    rows = {c.name: c for c in doctor._check_golden(project)}
+    assert rows["golden"].status == OK
+    assert rows["golden baselines"].status == OK
+    assert "1 module file(s)" in rows["golden baselines"].detail
+
+
+def test_check_golden_warns_when_root_unknown():
+    project = _project(golden=GoldenConfig(), root=None)
+    rows = {c.name: c for c in doctor._check_golden(project)}
+    assert rows["golden"].status == OK
+    assert rows["golden baselines"].status == WARN
 
 
 # ---- dump_json --------------------------------------------------------------
