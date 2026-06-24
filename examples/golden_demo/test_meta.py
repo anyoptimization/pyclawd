@@ -58,3 +58,11 @@ def test_unserializable_value_is_loud_not_pickled() -> None:
     """An unsupported type raises, honoring the no-silent-pickle rule."""
     with pytest.raises(GoldenError, match="no canonical form"):
         make_entry(object())
+
+
+def test_blessed_on_is_metadata_not_part_of_comparison() -> None:
+    """The version stamp is recorded but never affects pass/fail."""
+    entry = make_entry([1.0, 2.0], blessed_on="0.6.1")
+    assert entry["blessed_on"] == "0.6.1"
+    # A value recorded under a different version still compares purely on numbers.
+    assert compare([1.0, 2.0], entry).ok

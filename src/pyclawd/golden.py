@@ -199,7 +199,12 @@ def compare(new_value: Any, entry: dict[str, Any]) -> Comparison:
 
 
 def make_entry(
-    value: Any, *, precision: int = 10, rtol: float = 1e-9, atol: float = 1e-12
+    value: Any,
+    *,
+    precision: int = 10,
+    rtol: float = 1e-9,
+    atol: float = 1e-12,
+    blessed_on: str | None = None,
 ) -> dict[str, Any]:
     """Build a committed-baseline entry from a value (the record/bless path).
 
@@ -212,6 +217,10 @@ def make_entry(
         precision: Decimal places floats are rounded to before hashing.
         rtol: Relative tolerance stored for future comparisons.
         atol: Absolute tolerance stored for future comparisons.
+        blessed_on: Optional project/tool version that blessed this baseline,
+            stamped into the entry as ``blessed_on``. It is metadata only — never
+            read by :func:`compare` — so reading a years-old diff shows which
+            release produced the number without any multi-version storage.
 
     Returns:
         A JSON-serializable baseline entry.
@@ -224,6 +233,8 @@ def make_entry(
         entry["rtol"] = rtol
     if atol != 1e-12:
         entry["atol"] = atol
+    if blessed_on is not None:
+        entry["blessed_on"] = blessed_on
     return entry
 
 
@@ -273,13 +284,22 @@ class Recorder:
         node_key: The snapshot key prefix derived from the test node id (for a
             parametrized test this already includes the ``[param]`` suffix).
         update: Whether to record (``True``) or compare (``False``).
+        blessed_on: Optional version stamped into entries recorded in update mode.
     """
 
-    def __init__(self, store: GoldenStore, node_key: str, *, update: bool) -> None:
+    def __init__(
+        self,
+        store: GoldenStore,
+        node_key: str,
+        *,
+        update: bool,
+        blessed_on: str | None = None,
+    ) -> None:
         """Bind the recorder to a *store* and *node_key* in gate or *update* mode."""
         self._store = store
         self._node_key = node_key
         self._update = update
+        self._blessed_on = blessed_on
         self._labels: set[str] = set()
 
     def __call__(
@@ -313,7 +333,16 @@ class Recorder:
         self._labels.add(key)
 
         if self._update:
-            self._store.set(key, make_entry(value, precision=precision, rtol=rtol, atol=atol))
+            self._store.set(
+                key,
+                make_entry(
+                    value,
+                    precision=precision,
+                    rtol=rtol,
+                    atol=atol,
+                    blessed_on=self._blessed_on,
+                ),
+            )
             return
 
         entry = self._store.get(key)

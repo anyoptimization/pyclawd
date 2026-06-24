@@ -61,7 +61,9 @@ def golden(request: pytest.FixtureRequest) -> Recorder:
     store_path = module_file.parent / "golden" / f"{module_file.stem}.json"
     store = GoldenStore(store_path)
     update = os.environ.get("PYCLAWD_GOLDEN_UPDATE") == "1"
-    recorder = Recorder(store, _node_key(request.node), update=update)
+    # The shipped feature stamps the project/tool version here (read from config);
+    # the demo uses a fixed string so the recorded baseline is deterministic.
+    recorder = Recorder(store, _node_key(request.node), update=update, blessed_on="demo-0.1.0")
     yield recorder
     if update:
         store.save()
