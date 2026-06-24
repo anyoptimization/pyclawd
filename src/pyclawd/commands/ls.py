@@ -292,25 +292,28 @@ def ls(
     raise typer.Exit(0)
 
 
-def check_descriptions(project: Project) -> int:
+def check_descriptions(project: Project, paths: list[str] | None = None) -> int:
     """Check that every source file in *project*'s ``src_dir`` has a description.
 
     Used by ``pyclawd check`` when ``"descriptions"`` is in
     ``quality.check_sequence``. Prints the missing files and a summary line.
     Returns ``0`` when all files are described, ``1`` when any are missing.
 
-    Parameters
-    ----------
-    project : Project
-        The loaded project config.
+    Args:
+        project: The loaded project config.
+        paths: Optional list of specific files to check. When given, only those
+            files are checked instead of the full ``src_dir``.
     """
     root = project.root
     assert root is not None
     candidate = project.path(project.src_dir)
     listdir = candidate if candidate.is_dir() else root
 
-    files = _collect_files(listdir, include_untracked=False)
-    rows = [(rel, describe_file(listdir / rel)) for rel in files]
+    if paths:
+        rows = [(p, describe_file(Path(p) if Path(p).is_absolute() else root / p)) for p in paths]
+    else:
+        files = _collect_files(listdir, include_untracked=False)
+        rows = [(rel, describe_file(listdir / rel)) for rel in files]
     missing = [rel for rel, desc in rows if not desc]
 
     if missing:

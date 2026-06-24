@@ -173,7 +173,7 @@ def _run_step(
         return tests.run_suite([], markers, "check", project, jobs=project.test.jobs)
 
     if verb == "descriptions":
-        return ls_cmd.check_descriptions(project)
+        return ls_cmd.check_descriptions(project, paths=paths)
 
     cmd = _step_cmd(verb, quality, fix=fix)
     if not cmd:
