@@ -1,45 +1,38 @@
-"""Pytest plugin wiring the ``golden`` fixture + marker into any pyclawd project.
+"""Standalone pytest plugin: a ``@pytest.mark.golden`` test's return value is the snapshot.
 
-This generalises ``examples/golden_demo/conftest.py``: instead of a fixed demo
-baseline location and a hard-coded ``blessed_on`` string, it loads the adopting
-project's :class:`~pyclawd.project.Project` config and resolves everything from
-its :class:`~pyclawd.project.GoldenConfig` — the baseline directory, the marker
-name, and the version stamped onto freshly recorded baselines.
+Tag a test ``@pytest.mark.golden``; whatever it **returns** is captured and, based
+on its type, recorded to / compared against a committed baseline under
+``tests/golden/<module>.json``. A ``float`` stores as a readable rounded number, an
+``np.ndarray`` as a readable nested list — so a ``git diff`` of a baseline shows
+exactly which numbers moved. ``pytest --golden-update`` (re)records baselines for a
+human to review and commit; the default run compares and fails on drift.
 
-The plugin is loaded explicitly by ``pyclawd golden`` via
-``pytest -p pyclawd.pytest_plugin``; it is intentionally **not** registered as a
-``pytest11`` entry point, so adopting pyclawd needs no editable reinstall and the
-fixture never activates in projects that did not ask for it.
+This plugin is **standalone** — it depends only on the dependency-free
+:mod:`pyclawd.golden` engine, never on a ``.pyclawd/config.py`` or any pyclawd
+project. An adopting project installs pyclawd, and the ``golden`` marker + the
+return-capture behaviour work in bare ``pytest`` with zero config (the plugin
+registers via a ``pytest11`` entry point). All settings have defaults and are
+overridable through standard pytest ini options (``golden_dir``, ``golden_marker``,
+``golden_rtol``, ``golden_atol``, ``golden_precision``).
 
-Doctrine (see :mod:`pyclawd.golden`): tolerance is the gate, the hash is only a
-fast path; *agents compare, humans bless*. Gate mode (the default) compares each
-snapshot against its committed baseline and fails on drift; update mode
-(``PYCLAWD_GOLDEN_UPDATE=1``, what ``pyclawd golden update`` sets) records fresh
-baselines for a human to review and commit.
-
-Limitation (v1): the per-snapshot tolerances from
-:class:`~pyclawd.project.GoldenConfig` (``precision`` / ``rtol`` / ``atol``) are
-**not** threaded into every ``golden(...)`` call. Each call uses the
-:class:`~pyclawd.golden.Recorder` defaults unless the test passes explicit
-``precision=`` / ``rtol=`` / ``atol=`` overrides (which win). Wiring the config
-defaults through as the per-call fallback is left for a later revision.
+Doctrine (see :mod:`pyclawd.golden`): tolerance is the gate, the stored hash is only
+a fast path; *agents compare, humans bless*.
 """
 
 from __future__ import annotations
 
-import os
 import warnings
-from collections.abc import Iterable, Iterator
+from collections.abc import Iterable
 from pathlib import Path
+from typing import Any
 
 import pytest
 
-import pyclawd
-from pyclawd.discovery import ConfigError, load_project
-from pyclawd.golden import GoldenStore, Recorder, module_baseline_path
+from pyclawd.golden import GoldenError, GoldenStore, compare, make_entry, module_baseline_path
 
-#: Fallback marker name when no project / golden config is available.
+#: Default marker / baseline directory when nothing is configured.
 DEFAULT_MARKER = "golden"
+DEFAULT_DIR = "tests/golden"
 
 
 class GoldenIdWarning(UserWarning):
@@ -51,18 +44,19 @@ class GoldenIdWarning(UserWarning):
     """
 
 
-def derive_node_key(nodeid: str) -> str:
-    """Derive the snapshot key prefix from a pytest node id.
+# --------------------------------------------------------------------------- #
+# Snapshot-key derivation + the parametrize-id guardrail (pure, no pytest state).
+# --------------------------------------------------------------------------- #
 
-    The last ``::``-separated segment is the test function name plus any
-    parametrization ``[param]`` suffix, which is exactly the stable per-case key
-    the :class:`~pyclawd.golden.Recorder` expects.
+
+def derive_node_key(nodeid: str) -> str:
+    """Derive the snapshot key from a pytest node id (its last ``::`` segment).
 
     Args:
         nodeid: The pytest node id (e.g. ``tests/test_x.py::test_f[zdt1-de]``).
 
     Returns:
-        The function name including any ``[param]`` suffix.
+        The function name including any ``[param]`` suffix — the stable per-case key.
     """
     return nodeid.split("::")[-1]
 
@@ -74,8 +68,7 @@ def param_id(node_key: str) -> str | None:
         node_key: A key from :func:`derive_node_key`.
 
     Returns:
-        The text inside ``[...]`` (e.g. ``"zdt1-de"``), or ``None`` for a
-        non-parametrized test.
+        The text inside ``[...]`` (e.g. ``"zdt1-de"``), or ``None`` if unparametrized.
     """
     if "[" not in node_key:
         return None
@@ -83,17 +76,7 @@ def param_id(node_key: str) -> str | None:
 
 
 def _argnames_from_spec(spec: object) -> list[str]:
-    """Normalise a parametrize argname spec into individual argnames.
-
-    The first positional arg of a ``parametrize`` mark is either a comma-joined
-    string (``"a,b"``) or a sequence of names (``["a", "b"]``).
-
-    Args:
-        spec: The ``mark.args[0]`` argname spec.
-
-    Returns:
-        The individual argnames (stripped, empties dropped).
-    """
+    """Normalise a ``parametrize`` argname spec (``"a,b"`` or ``["a","b"]``) into names."""
     if isinstance(spec, str):
         return [name.strip() for name in spec.split(",") if name.strip()]
     if isinstance(spec, (list, tuple)):
@@ -104,10 +87,8 @@ def _argnames_from_spec(spec: object) -> list[str]:
 def auto_argnames(node: pytest.Item) -> set[str]:
     """Argnames whose ids pytest may auto-number for this test node.
 
-    Only ``parametrize`` marks that did **not** supply an explicit ``ids=`` can
-    produce the fragile ``<argname><index>`` id form; a mark with ``ids=`` owns
-    its ids, so its argnames are excluded. This is what lets the guardrail tell
-    an auto ``algorithm0`` from an explicit ``s2`` / ``nsga2``.
+    Only ``parametrize`` marks without an explicit ``ids=`` can produce the fragile
+    ``<argname><index>`` form; a mark with ``ids=`` owns its ids and is excluded.
 
     Args:
         node: The running pytest item.
@@ -125,19 +106,14 @@ def auto_argnames(node: pytest.Item) -> set[str]:
 
 
 def looks_autogenerated(pid: str, argnames: Iterable[str]) -> bool:
-    """Whether a parametrize id was index-based / pytest-auto-generated.
+    """Whether a parametrize id is an index-based ``<argname><digits>`` (pytest-auto).
 
-    Pytest falls back to ``<argname><index>`` (e.g. ``algorithm0``) when a
-    parameter value has no readable id and no explicit ``ids=`` was given. Such
-    ids are positional and fragile as snapshot keys. A segment is flagged only
-    when it is exactly one of *argnames* followed by a run of digits — so an
-    explicit id whose text merely ends in a digit (``zdt1``, ``nsga2``, ``s2``)
+    An explicit id whose text merely ends in a digit (``zdt1``, ``nsga2``, ``s2``)
     is **not** flagged, because its prefix is not a parametrize argname.
 
     Args:
-        pid: The parametrization id (the text between ``[`` and ``]``).
-        argnames: The argnames eligible for auto-numbering (see
-            :func:`auto_argnames`).
+        pid: The parametrization id (text between ``[`` and ``]``).
+        argnames: Argnames eligible for auto-numbering (see :func:`auto_argnames`).
 
     Returns:
         ``True`` if any ``-``-separated segment is an ``<argname><digits>``.
@@ -153,75 +129,116 @@ def looks_autogenerated(pid: str, argnames: Iterable[str]) -> bool:
     return False
 
 
-def _resolve_marker() -> str:
-    """Resolve the golden marker name from the project, defensively.
+# --------------------------------------------------------------------------- #
+# pytest hooks — config, marker, and the return-value capture.
+# --------------------------------------------------------------------------- #
 
-    Returns:
-        The project's ``GoldenConfig.marker`` when a pyclawd project with a
-        golden config can be loaded, else :data:`DEFAULT_MARKER`. Never raises —
-        a missing/broken config degrades to the default so collection is never
-        blocked in a non-pyclawd or golden-less project.
-    """
-    try:
-        project = load_project()
-    except ConfigError:
-        return DEFAULT_MARKER
-    if project is None or project.golden is None:
-        return DEFAULT_MARKER
-    return project.golden.marker
+
+def pytest_addoption(parser: pytest.Parser) -> None:
+    """Register the ``--golden-update`` flag and the ``golden_*`` ini settings."""
+    parser.addoption(
+        "--golden-update",
+        action="store_true",
+        default=False,
+        help="Record/bless golden baselines from test return values instead of comparing.",
+    )
+    parser.addini(
+        "golden_dir", "Directory holding committed golden baselines.", default=DEFAULT_DIR
+    )
+    parser.addini("golden_marker", "Marker selecting golden tests.", default=DEFAULT_MARKER)
+    parser.addini("golden_precision", "Default decimal places for float rounding.", default="10")
+    parser.addini("golden_rtol", "Default relative tolerance.", default="1e-9")
+    parser.addini("golden_atol", "Default absolute tolerance.", default="1e-12")
+
+
+def _marker(config: pytest.Config) -> str:
+    """The configured golden marker name (default ``golden``)."""
+    return str(config.getini("golden_marker") or DEFAULT_MARKER)
+
+
+def _baseline_dir(config: pytest.Config) -> Path:
+    """The baseline directory, resolved against the pytest rootdir when relative."""
+    raw = str(config.getini("golden_dir") or DEFAULT_DIR)
+    path = Path(raw)
+    return path if path.is_absolute() else config.rootpath / path
+
+
+def _tolerances(config: pytest.Config) -> tuple[int, float, float]:
+    """The configured ``(precision, rtol, atol)`` defaults for new baselines."""
+    return (
+        int(config.getini("golden_precision") or 10),
+        float(config.getini("golden_rtol") or 1e-9),
+        float(config.getini("golden_atol") or 1e-12),
+    )
 
 
 def pytest_configure(config: pytest.Config) -> None:
-    """Register the golden marker so ``-m <marker>`` selects the oracle tier.
+    """Register the golden marker so ``-m <marker>`` selects golden tests."""
+    config.addinivalue_line(
+        "markers",
+        f"{_marker(config)}: capture the test's return value as a committed golden baseline.",
+    )
+
+
+@pytest.hookimpl(tryfirst=True)
+def pytest_pyfunc_call(pyfuncitem: pytest.Function) -> bool | None:
+    """Run a golden-marked test ourselves and snapshot its return value.
+
+    For a test carrying the golden marker, this calls the function, captures its
+    return value, and records it (``--golden-update``) or compares it against the
+    committed baseline (the default), then returns ``True`` so pytest does not call
+    the function a second time. Non-golden tests are left untouched.
 
     Args:
-        config: The pytest config being initialised.
-    """
-    marker = _resolve_marker()
-    config.addinivalue_line("markers", f"{marker}: behavior-regression snapshot test.")
+        pyfuncitem: The pytest function item about to be called.
 
-
-@pytest.fixture
-def golden(request: pytest.FixtureRequest) -> Iterator[Recorder]:
-    """Yield the per-test snapshot recorder bound to this project's baselines.
-
-    Resolves the adopting project's config, locates the per-module baseline file
-    under ``GoldenConfig.baseline_dir``, derives the snapshot key from the node
-    id, and hands back a :class:`~pyclawd.golden.Recorder` in gate mode (or
-    update mode when ``PYCLAWD_GOLDEN_UPDATE=1``). On teardown the store is saved
-    only in update mode.
-
-    Args:
-        request: The pytest fixture request (gives the node id and module path).
-
-    Yields:
-        A :class:`~pyclawd.golden.Recorder` for the running test.
+    Returns:
+        ``True`` when the golden test was handled here, else ``None`` (defer to
+        pytest's normal call).
 
     Raises:
-        Failed: Via :func:`pytest.fail` when the project has no golden config.
+        GoldenError: When the return value drifts from its baseline, or no baseline
+            exists yet in compare mode.
     """
-    project = load_project()
-    if project is None or project.golden is None:
-        pytest.fail("golden not configured — add GoldenConfig to .pyclawd/config.py")
+    config = pyfuncitem.config
+    if pyfuncitem.get_closest_marker(_marker(config)) is None:
+        return None
 
-    baseline_dir = project.path(project.golden.baseline_dir)
-    module_stem = Path(request.node.module.__file__).stem
-    store = GoldenStore(module_baseline_path(baseline_dir, module_stem))
+    testargs = {name: pyfuncitem.funcargs[name] for name in pyfuncitem._fixtureinfo.argnames}
+    result = pyfuncitem.obj(**testargs)
+    _snapshot(pyfuncitem, result)
+    return True
 
-    node_key = derive_node_key(request.node.nodeid)
-    pid = param_id(node_key)
-    if pid is not None and looks_autogenerated(pid, auto_argnames(request.node)):
+
+def _snapshot(pyfuncitem: pytest.Function, value: Any) -> None:
+    """Record or compare *value* (a test's return) against its committed baseline."""
+    config = pyfuncitem.config
+    module_file = pyfuncitem.module.__file__
+    assert module_file is not None
+    store = GoldenStore(module_baseline_path(_baseline_dir(config), Path(module_file).stem))
+
+    key = derive_node_key(pyfuncitem.nodeid)
+    pid = param_id(key)
+    if pid is not None and looks_autogenerated(pid, auto_argnames(pyfuncitem)):
         warnings.warn(
-            f"golden: parametrize id {pid!r} in {node_key!r} looks auto-generated "
-            "(index-based) — snapshot keys shift if cases are reordered. "
-            "Pin explicit ids= on the parametrize.",
+            f"golden: parametrize id {pid!r} in {key!r} looks auto-generated (index-based) — "
+            "snapshot keys shift if cases are reordered. Pin explicit ids= on the parametrize.",
             GoldenIdWarning,
-            stacklevel=2,
+            stacklevel=3,
         )
 
-    update = os.environ.get("PYCLAWD_GOLDEN_UPDATE") == "1"
-    blessed_on = project.pyclawd_version or pyclawd.__version__
-    recorder = Recorder(store, node_key, update=update, blessed_on=blessed_on)
-    yield recorder
-    if update:
+    precision, rtol, atol = _tolerances(config)
+    if config.getoption("--golden-update"):
+        store.set(key, make_entry(value, precision=precision, rtol=rtol, atol=atol))
         store.save()
+        return
+
+    entry = store.get(key)
+    if entry is None:
+        raise GoldenError(
+            f"golden: no baseline for {key!r}. Record it with `pytest --golden-update` "
+            "and commit the baseline."
+        )
+    result = compare(value, entry)
+    if not result.ok:
+        raise GoldenError(f"golden: {key}\n  {result.detail}")

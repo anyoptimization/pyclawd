@@ -1,6 +1,6 @@
 ---
 name: pyclawd-golden
-description: Prove behavior is *unchanged* across a refactor or migration with pyclawd's golden behavior-regression oracle — committed snapshot baselines compared with a per-snapshot tolerance. Covers the record→review→commit bless workflow, why the hash is only a fast path (tolerance is the gate), parametrized-test keys, and reading a golden failure. Use when refactoring, doing a batch/fleet migration, or when "did this change any numbers?" must be answered.
+description: Prove behavior is *unchanged* across a refactor or migration with pyclawd's golden behavior-regression oracle — tag a test `@pytest.mark.golden` and `return` a value; the pytest plugin captures the return value and compares it against a committed baseline with a per-snapshot tolerance. Works standalone in a bare-pytest repo with zero pyclawd references. Covers the tag+return model, the record→review→commit bless workflow, why the hash is only a fast path (tolerance is the gate), parametrized-test keys, and reading a golden failure. Use when refactoring, doing a batch/fleet migration, or when "did this change any numbers?" must be answered.
 when_to_use: Refactoring or migrating code that must not change observable outputs, verifying a fleet of agent edits, adding a regression baseline, or a golden test failed and you need to tell a real regression from an intended change. The complement to `pyclawd-quality` — quality proves *clean*, golden proves *unchanged*.
 ---
 
@@ -13,8 +13,20 @@ to a **committed baseline** and fails when a future run drifts from it. Because 
 baseline is in git, any later behavior change fails in CI forever, and `git blame`
 shows exactly when and how a number moved.
 
-Golden is **opt-in per project** (a `GoldenConfig`); like every pyclawd group, if
-it is unconfigured the command self-reports and exits `2` instead of crashing.
+**Standalone by design.** Golden is a pytest plugin that auto-registers via a
+`pytest11` entry point — it works in a **bare-pytest repo with zero pyclawd
+references**: no `import pyclawd` in your tests, no conftest wiring, no
+`.pyclawd/config.py`. A project just adds `pyclawd` as a dev-dependency and
+`@pytest.mark.golden` + return-capture works under plain `pytest`. The
+`pyclawd golden` CLI (below) is an **optional** wrapper for projects that already
+use pyclawd; the plugin itself needs none of it.
+
+Plugin defaults: baselines at `tests/golden/<module>.json`, marker `golden`. Each
+is overridable via pytest ini options — `golden_dir`, `golden_marker`,
+`golden_rtol`, `golden_atol`, `golden_precision` (or, in a pyclawd project, via
+`GoldenConfig`). Like every pyclawd group, if `GoldenConfig` is unconfigured the
+`pyclawd golden` command self-reports and exits `2` instead of crashing — but the
+plugin still works under bare `pytest`.
 
 ---
 
@@ -54,36 +66,63 @@ The inline value is also what makes a `git diff` of a baseline readable
 
 ## Writing a golden test
 
+Tag the test `@pytest.mark.golden` and **`return` the value to snapshot**. The
+plugin captures the return value and records/compares it against the committed
+baseline — there is no fixture to call.
+
+```python
+@pytest.mark.golden
+def test_minimize():
+    res = minimize(get_problem("sphere"), seed=42)
+    return res.F                       # captured + compared against the baseline
+```
+
+Parametrized — every case gets its own baseline entry, keyed by the param id:
+
 ```python
 @pytest.mark.golden
 @pytest.mark.parametrize("problem", ["sphere", "rosenbrock"], ids=["sphere", "rosenbrock"])
-def test_minimize(golden, problem):
-    result = minimize(get_problem(problem), seed=42)
-    golden(result.F, label="F", rtol=1e-9)      # objective vector
-    golden(result.indicator, label="indicator") # scalar — stored inline
+def test_minimize(problem):
+    res = minimize(get_problem(problem), seed=42)
+    return res.F
 ```
 
-- The `golden` fixture auto-keys each snapshot from the test node id. For a
-  parametrized test the id already carries the case (`test_minimize[sphere]`), so
-  every case gets its own baseline entry.
-- **Multiple snapshots in one test need a distinct `label=`.**
-- Overrides per call: `label=`, `precision=`, `rtol=`, `atol=`.
-- Scalars/small data are stored **inline** (readable diffs); big arrays use a
-  hash + a sidecar artifact.
+- **To snapshot several values from one test, return a dict** (or tuple) — e.g.
+  `return {"F": res.F, "indicator": res.indicator}`. The whole structure is
+  captured as one baseline entry.
+- The snapshot is keyed from the test node id; for a parametrized test the id
+  already carries the case (`test_minimize[sphere]`).
+- Tolerances/precision come from the project's `GoldenConfig` (or the
+  `golden_rtol` / `golden_atol` / `golden_precision` pytest ini options), not from
+  a per-call argument.
+
+### How values are stored (all human-readable in `git diff`)
+
+- **`float`** → a readable rounded number.
+- **`np.ndarray`** → a readable nested list.
+- **scalars / lists / dicts** → inline JSON.
+
+Every type lands as readable text in the baseline, so a `git diff` shows exactly
+what moved (`0.925 → 0.522`).
 
 ### Parametrized tests — use stable `ids=`
 
 The snapshot key comes from the param id. If you parametrize over **objects
 without `ids=`**, pytest names them by index (`algo0`, `algo1`) — and inserting
 one case silently re-maps every key, so you'd compare the wrong baseline. **Always
-pass explicit `ids=`** for golden parametrized tests; the fixture warns on
+pass explicit `ids=`** for golden parametrized tests; the plugin warns on
 index-based auto-ids.
 
 ---
 
 ## The workflow — record, review, commit (the bless)
 
+Default `pytest` (or `pyclawd golden`) **compares** and fails on drift. To
+record/bless a baseline, pass the update flag:
+
 ```bash
+pytest --golden-update         # BARE PYTEST: record/bless baselines (no pyclawd needed)
+
 pyclawd golden                 # GATE: compare against committed baselines (the default)
 pyclawd golden update          # RECORD/bless baselines after an *intended* change
 pyclawd golden update -k de    # bless only matching cases (merges — never wipes others)
@@ -93,7 +132,11 @@ pyclawd golden status          # list snapshots; flag orphaned/missing baselines
 pyclawd golden prune           # remove baselines whose tests no longer exist
 ```
 
-**Blessing is a human act.** `golden update` records new baselines; a human
+`pytest --golden-update` and `pyclawd golden update` do the same thing — record
+the captured return values as the new baselines. Use whichever fits the project;
+neither is wired into an autonomous self-gate.
+
+**Blessing is a human act.** The update flag records new baselines; a human
 reviews the `git diff` and commits it. The PR diff of the baseline *is* the
 record of what behavior changed and why.
 

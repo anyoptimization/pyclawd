@@ -1,93 +1,89 @@
-# golden — worked example (the 5a spec artifact)
+# golden — worked example
 
 A runnable, end-to-end demonstration of pyclawd's **behavior-regression oracle**.
 The static gate (`pyclawd check`: format/lint/typecheck/test) proves code is
-*clean*; `golden` proves behavior is *unchanged*. This directory is the concrete
-artifact the council review required before building the full feature — a real
-test, the real baseline file it produces, and a real failure-and-fix transcript.
+*clean*; golden proves behavior is *unchanged*.
+
+The model is dead simple: **tag a test `@pytest.mark.golden` and `return` a value.**
+The pytest plugin captures the return value and either compares it against a
+committed baseline (the default) or records a new one (`--golden-update`).
+
+**No fixture. No imports. No `.pyclawd/config.py`.** The plugin auto-registers via a
+`pytest11` entry point — install pyclawd and the `golden` marker just works in bare
+`pytest`. Tests never import pyclawd.
 
 ## The files
 
 | File | Role |
 |---|---|
-| `../../src/pyclawd/golden.py` | the engine (canonicalize → hash → tolerant compare; record/gate) |
-| `conftest.py` | wires the `golden` fixture + `@pytest.mark.golden` marker (future: a pyclawd pytest plugin) |
-| `test_optimize.py` | a real golden test — snapshots a seeded "optimizer" objective vector |
-| `golden/test_optimize.json` | the **committed baseline** — inline values + fast-path hashes |
-| `test_meta.py` | meta-tests proving the oracle *bites* (catches planted drift) |
+| `test_optimize.py` | golden tests — each returns a value the plugin snapshots |
+| `golden/test_optimize.json` | the **committed baseline** — readable values + a fast-path hash |
+| `pytest.ini` | one line: `golden_dir = golden` (baselines sit adjacent to the tests) |
 
 ## The workflow
 
-**1. Gate (the default — compare against committed baselines):**
+**1. Compare (the default — fail on drift):**
 
 ```
-pyclawd python -m pytest examples/golden_demo -m golden
+pytest examples/golden_demo
 ```
 
 **2. Bless (record baselines after an _intentional_ behavior change):**
 
 ```
-PYCLAWD_GOLDEN_UPDATE=1 pyclawd python -m pytest examples/golden_demo -m golden
+pytest examples/golden_demo --golden-update
 git diff examples/golden_demo/golden/   # review the value changes, then commit
 ```
 
-Blessing is a **human-run, human-reviewed, human-committed** act — never wired
-into an autonomous loop's self-gate. The PR diff of the baseline file *is* the
-record of what behavior changed and when (`git blame`).
+Blessing is a **human-run, human-reviewed, human-committed** act — never wired into
+an autonomous loop's self-gate. The PR diff of the baseline file *is* the record of
+what behavior changed and when. **Agents compare; humans bless.**
+
+## A test is just a return value
+
+```python
+@pytest.mark.golden
+def test_indicator() -> float:
+    f = optimize("sphere", seed=7)
+    return math.sqrt(float(f @ f))          # a float → a readable number
+
+
+@pytest.mark.golden
+@pytest.mark.parametrize("problem", ["sphere", "rosenbrock"], ids=["sphere", "rosenbrock"])
+def test_front(problem: str) -> np.ndarray:
+    return optimize(problem, seed=42)        # an np.array → a readable nested list
+```
 
 ## What a committed baseline looks like
 
+The plugin renders each return value by type — a `float` as a readable rounded
+number, an `np.ndarray` as a readable nested list — so a `git diff` shows exactly
+which numbers moved. There is no `blessed_on` field; provenance is git's job.
+
 ```jsonc
 {
-  "test_minimize[sphere]::F":         { "hash": "sha256:82b1…", "value": [0.925444, 0.001444] },
-  "test_minimize[sphere]::indicator": { "hash": "sha256:af5d…", "value": 0.9254451266 },
-  "test_scalar_metric":               { "hash": "sha256:a4ff…", "value": 0.4653799416 }
+  "test_indicator":        { "hash": "sha256:a4ff…", "value": 0.4653799416 },
+  "test_front[sphere]":    { "hash": "sha256:82b1…", "value": [0.925444, 0.001444] },
+  "test_front[rosenbrock]":{ "hash": "sha256:77ee…", "value": [0.001444, 0.1336341136] }
 }
 ```
 
-The **inline `value`** is what makes a `git diff` read `0.925 → 0.522`; the
-**`hash`** is only a fast path in front of the tolerant comparison.
+The parametrized test produces **one baseline entry per case**, keyed by the pytest
+node id (`test_front[sphere]`, `test_front[rosenbrock]`). The inline `value` is what
+makes the diff readable; the `hash` is only a fast path in front of the tolerant
+comparison.
 
 ## The failure transcript (regression caught)
 
-Inject a "clean" edit that changes behavior (here: `seed=42 → seed=43`) and the
-gate fails with **what** drifted, not just that it did:
+Inject a "clean" edit that changes behavior (e.g. `seed=42 → seed=43`) and the
+default run fails with **what** drifted — the changed numbers, not just that
+something did:
 
 ```
-pyclawd.golden.GoldenError: golden: test_minimize[sphere]::F
+GoldenError: golden: test_front[sphere]
   value drifted beyond tolerance (rtol=1e-09, atol=1e-12)
   baseline: [0.925444, 0.001444]
   actual:   [0.522729, 0.076729]
 ```
 
-Revert the edit → the gate is green again. No baseline was touched.
-
-## Which design questions this resolves
-
-The council flagged these as must-answer-before-building. The example answers
-each concretely:
-
-- **"Exact vs tolerant is a contradiction."** It isn't — they're sequenced. The
-  **hash is demoted to an optimization**; a hash miss falls back to a tolerant
-  value compare (`test_meta.py::test_subtolerance_jitter_passes_via_value_fallback`).
-  This is what stops committed baselines flaking on cross-platform BLAS jitter.
-- **"Rounding vs tolerance — which is the gate?"** Rounding (`precision`) only
-  stabilizes the fast-path hash; **tolerance (`rtol`/`atol`) is the semantic
-  gate**, stored *per snapshot* in the entry, not centrally.
-- **"Hash tells you THAT not WHAT changed."** Inline values give a real
-  `baseline → actual` diff on failure (see the transcript above).
-- **"No silent pickle."** An unserializable value raises loudly
-  (`test_meta.py::test_unserializable_value_is_loud_not_pickled`).
-- **"A passing golden test doesn't prove it tests anything."** The meta-tests
-  plant a regression and assert the oracle catches it.
-- **Parametrized keys** come from the pytest node id (`test_minimize[sphere]`),
-  one stable per-case baseline entry; the fixture guards against unstable
-  index-based auto-ids.
-
-## Not yet exercised here (the designed extensions)
-
-This pure-Python core covers the **inline-value path** (scalars, small vectors —
-the readable, common case). The full feature adds the **sidecar path** for big
-arrays/frames (`.npz`/`.csv` + `np.allclose`/`assert_frame_equal`) and the
-`pyclawd golden` / `update -k` / `status` / `prune` command layer — the council's
-recommended Story 5b, built on top of this validated 5a core.
+Revert the edit → the run is green again. No baseline was touched.

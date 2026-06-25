@@ -12,11 +12,10 @@ optimization*):
   mismatch never fails a snapshot on its own — it falls back to a tolerant
   value comparison. This is what makes committed baselines survive cross-platform
   float jitter (BLAS ±1 ULP) instead of flaking on it.
-- **Values are stored inline and human-readable.** A scalar baseline literally
-  shows ``3.141 → 3.150`` in a ``git diff``; that readability is the whole point
-  of committing baselines. Big arrays would instead carry a hash + a sidecar
-  artifact (the designed extension — not exercised by this module's pure-Python
-  core).
+- **Values are stored inline and human-readable.** A ``float`` baseline literally
+  shows ``3.141 → 3.150`` in a ``git diff``; that readability is the whole point of
+  committing baselines. Provenance — *when/what release* changed a number — is
+  git's job (the commit that edits a baseline), not a stored field.
 - **No pickle.** The canonical form is JSON-serializable; an unsupported type is
   a loud error asking for an explicit serializer, never a silent pickle.
 - **numpy values are accepted inline.** When numpy is installed, an ``np.ndarray``
@@ -24,12 +23,12 @@ optimization*):
   NaN/Inf handling still apply) and numpy scalars (``np.floating`` /
   ``np.integer`` / ``np.bool_``) reduce to plain ``float`` / ``int`` / ``bool``.
   numpy is an *optional* dependency imported lazily — absent it, behavior is the
-  unchanged pure-python path. Large arrays stored as a hash + ``.npz`` sidecar
-  remain a deliberately deferred future enhancement, not this inline path.
+  unchanged pure-python path.
 
-The flow: a ``golden`` fixture computes a value, canonicalizes it (rounding floats
-to ``precision`` decimals so the fast-path hash is stable), and either **records**
-it (update mode) or **compares** it to the committed baseline (gate mode).
+This module is **dependency-free** (stdlib + lazy numpy) — the engine behind the
+standalone :mod:`pyclawd.pytest_plugin`, which captures a ``@pytest.mark.golden``
+test's **return value** and either **records** it (``pytest --golden-update``) or
+**compares** it to the committed baseline (the default).
 """
 
 from __future__ import annotations
@@ -249,23 +248,20 @@ def make_entry(
     precision: int = 10,
     rtol: float = 1e-9,
     atol: float = 1e-12,
-    blessed_on: str | None = None,
 ) -> dict[str, Any]:
     """Build a committed-baseline entry from a value (the record/bless path).
 
     Stores the inline canonical ``value`` (readable, tolerant-comparable) plus a
     ``hash`` (the fast path). Per-snapshot ``rtol``/``atol``/``precision`` travel
     *in the entry*, not in a central config, so each snapshot owns its tolerance.
+    Provenance (when/what release changed a number) is git's job — the commit that
+    edits a baseline records it better than any self-reported field could.
 
     Args:
         value: The snapshot value to record.
         precision: Decimal places floats are rounded to before hashing.
         rtol: Relative tolerance stored for future comparisons.
         atol: Absolute tolerance stored for future comparisons.
-        blessed_on: Optional project/tool version that blessed this baseline,
-            stamped into the entry as ``blessed_on``. It is metadata only — never
-            read by :func:`compare` — so reading a years-old diff shows which
-            release produced the number without any multi-version storage.
 
     Returns:
         A JSON-serializable baseline entry.
@@ -278,8 +274,6 @@ def make_entry(
         entry["rtol"] = rtol
     if atol != 1e-12:
         entry["atol"] = atol
-    if blessed_on is not None:
-        entry["blessed_on"] = blessed_on
     return entry
 
 
@@ -357,88 +351,3 @@ def iter_baseline_files(baseline_dir: Path) -> list[Path]:
     if not baseline_dir.is_dir():
         return []
     return sorted(baseline_dir.glob("*.json"))
-
-
-class Recorder:
-    """The object a test receives as the ``golden`` fixture.
-
-    In **gate mode** (default) each call compares against the committed baseline
-    and raises :class:`GoldenError` on drift. In **update mode** each call
-    records a fresh baseline (the human-run, human-reviewed bless step — never
-    wired into an autonomous loop's self-gate).
-
-    Args:
-        store: The module's :class:`GoldenStore`.
-        node_key: The snapshot key prefix derived from the test node id (for a
-            parametrized test this already includes the ``[param]`` suffix).
-        update: Whether to record (``True``) or compare (``False``).
-        blessed_on: Optional version stamped into entries recorded in update mode.
-    """
-
-    def __init__(
-        self,
-        store: GoldenStore,
-        node_key: str,
-        *,
-        update: bool,
-        blessed_on: str | None = None,
-    ) -> None:
-        """Bind the recorder to a *store* and *node_key* in gate or *update* mode."""
-        self._store = store
-        self._node_key = node_key
-        self._update = update
-        self._blessed_on = blessed_on
-        self._labels: set[str] = set()
-
-    def __call__(
-        self,
-        value: Any,
-        label: str | None = None,
-        *,
-        precision: int = 10,
-        rtol: float = 1e-9,
-        atol: float = 1e-12,
-    ) -> None:
-        """Snapshot *value* — record it (update mode) or assert it (gate mode).
-
-        Args:
-            value: The observable output to snapshot.
-            label: Disambiguates multiple snapshots in one test. Required when a
-                test calls ``golden`` more than once.
-            precision: Decimal places floats are rounded to before hashing.
-            rtol: Relative tolerance for the comparison.
-            atol: Absolute tolerance for the comparison.
-
-        Raises:
-            GoldenError: In gate mode, if the value drifts beyond tolerance — or
-                if there is no committed baseline yet (run update mode first).
-        """
-        key = self._node_key if label is None else f"{self._node_key}::{label}"
-        if key in self._labels:
-            raise GoldenError(
-                f"golden: duplicate snapshot key {key!r} — pass distinct label= values."
-            )
-        self._labels.add(key)
-
-        if self._update:
-            self._store.set(
-                key,
-                make_entry(
-                    value,
-                    precision=precision,
-                    rtol=rtol,
-                    atol=atol,
-                    blessed_on=self._blessed_on,
-                ),
-            )
-            return
-
-        entry = self._store.get(key)
-        if entry is None:
-            raise GoldenError(
-                f"golden: no baseline for {key!r}. Record it with update mode "
-                "(`pyclawd golden update`) and commit the baseline."
-            )
-        result = compare(value, entry)
-        if not result.ok:
-            raise GoldenError(f"golden: {key}\n  {result.detail}")

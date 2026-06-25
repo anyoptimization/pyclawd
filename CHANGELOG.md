@@ -12,6 +12,14 @@ the running pyclawd has a different `major.minor`, pointing here for what change
 ## [Unreleased]
 
 ### Added
+- **`PYCLAWD_DISCOVERY`** — an `os.pathsep`-separated search path of config
+  directories for walk-up discovery (default: `.pyclawd`). Setting
+  `".local/.pyclawd:.pyclawd"` lets a project keep its config **uncommitted** at
+  `<repo>/.local/.pyclawd/config.py` (gitignore `.local/`) while `Project.root`
+  still resolves to the repo. Because the entries are *relative*, one global value
+  is safe across many repos and concurrent projects — resolution stays per-cwd
+  (unlike pointing `PYCLAWD_CONFIG` at a fixed absolute path). `pyclawd config`
+  shows the effective search path.
 - **Agent-driven upgrade flow** for when pyclawd itself is updated:
   - `pyclawd version` now also reports the version a project's config was authored
     against (`Project.pyclawd_version`) and whether it matches the running pyclawd —

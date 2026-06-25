@@ -1,32 +1,19 @@
 {
-  "test_minimize[rosenbrock]::F": {
-    "blessed_on": "demo-0.1.0",
+  "test_front[rosenbrock]": {
     "hash": "sha256:77ee68feed7b79f48ef7ec7b11aeafd3007f0be4f0f2ba68a1c2ce145fe1adde",
     "value": [
       0.001444,
       0.1336341136
     ]
   },
-  "test_minimize[rosenbrock]::indicator": {
-    "blessed_on": "demo-0.1.0",
-    "hash": "sha256:862c1992e9c8c2d72169823b5fd8c5f90ede9c9c5363ecdac0c2a3934b5ba686",
-    "value": 0.133641915
-  },
-  "test_minimize[sphere]::F": {
-    "blessed_on": "demo-0.1.0",
+  "test_front[sphere]": {
     "hash": "sha256:82b18fafc16fcddabd03ae96bb0f25308e2715b2f5f13e4730495f24b6581a2a",
     "value": [
       0.925444,
       0.001444
     ]
   },
-  "test_minimize[sphere]::indicator": {
-    "blessed_on": "demo-0.1.0",
-    "hash": "sha256:af5d067c3b6f7e2ae6169e96c143165e296b4ea33edc4b48b61589a0d2146a66",
-    "value": 0.9254451266
-  },
-  "test_scalar_metric": {
-    "blessed_on": "demo-0.1.0",
+  "test_indicator": {
     "hash": "sha256:a4ff833584703981ea16e53fae04aa26d6f1425fd60a65fdf811834e805ff941",
     "value": 0.4653799416
   }

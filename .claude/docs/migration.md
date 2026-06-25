@@ -82,21 +82,24 @@ that gap with the shipped golden oracle **on the known-good tree, before editing
    `rtol`, `atol`; defaults: `tests/golden`, marker `golden`, `precision=10`,
    `rtol=1e-9`, `atol=1e-12`).
 2. Write golden tests over the framework's observable surface — algorithm results,
-   problem evaluations, indicators, decomposition, sorting — using the `golden` fixture:
+   problem evaluations, indicators, decomposition, sorting — by tagging each test
+   `@pytest.mark.golden` and **returning the value to snapshot** (the pytest plugin
+   captures the return value and compares it against the committed baseline):
 
    ```python
    @pytest.mark.golden
    @pytest.mark.parametrize("problem", ["sphere", "rosenbrock"], ids=["sphere", "rosenbrock"])
-   def test_minimize(golden, problem):
+   def test_minimize(problem):
        result = minimize(get_problem(problem), seed=42)
-       golden(result.F, label="F", rtol=1e-9)
+       return result.F          # return a dict to snapshot several values at once
    ```
    Always pass explicit `ids=` on parametrized goldens (index-based ids silently re-map
-   baselines). Multiple snapshots in one test each need a distinct `label=`.
+   baselines). The plugin auto-registers (pytest11 entry point), so this works in a bare
+   pytest repo with zero pyclawd references.
 3. **Record and commit the baselines on the clean tree:**
 
    ```bash
-   pyclawd golden update        # record baselines (a human blesses)
+   pyclawd golden update        # record baselines (a human blesses; or `pytest --golden-update`)
    git diff tests/golden        # review the captured values
    git commit                   # the committed baseline IS the behavior contract
    ```

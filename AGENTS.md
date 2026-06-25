@@ -42,7 +42,7 @@ on `PYTHONPATH`. Bare `python` misses the env and the in-tree source.
 | Fix-loop | `pyclawd test failures` → `pyclawd test fix` → `pyclawd test run` |
 | Slowest tests | `pyclawd test timings [--top N] [--slow-threshold S]` (S = list tests slower than S seconds — `slow`-marker candidates) |
 | Coverage | `pyclawd coverage [--check] [--html]` |
-| Prove behavior unchanged | `pyclawd golden` · `golden update [-k EXPR]` · `status` · `prune` |
+| Prove behavior unchanged | `pyclawd golden` · `golden update [-k EXPR]` · `status` · `prune` (bare pytest: `@pytest.mark.golden` + `return`; bless with `pytest --golden-update`) |
 | Lint / autofix | `pyclawd lint` · `pyclawd lint --fix` · `pyclawd lint <file...>` |
 | Format / check | `pyclawd format` · `pyclawd format --check` · `pyclawd format <file...>` |
 | Type-check | `pyclawd typecheck` · `pyclawd typecheck <file...>` |
@@ -56,8 +56,12 @@ on `PYTHONPATH`. Bare `python` misses the env and the in-tree source.
 | Repo root | `pyclawd root` |
 
 Run `pyclawd config` first — it shows the exact command every verb resolves to and
-the `PYCLAWD_*` override knobs (`PYCLAWD_CONFIG`, `PYCLAWD_PYTHON`,
-`PYCLAWD_WORK_DIR`). `pyclawd check` runs all quality steps (format-check → lint →
+the `PYCLAWD_*` override knobs (`PYCLAWD_CONFIG`, `PYCLAWD_DISCOVERY`,
+`PYCLAWD_PYTHON`, `PYCLAWD_WORK_DIR`). To run pyclawd **without committing** a
+`.pyclawd/` folder, set `PYCLAWD_DISCOVERY=".local/.pyclawd:.pyclawd"` once (a
+relative pattern — safe across all repos/projects) and keep a gitignored
+`<repo>/.local/.pyclawd/config.py`; walk-up finds it and `root` still resolves to
+the repo. `pyclawd check` runs all quality steps (format-check → lint →
 typecheck) **regardless of individual failures**, streaming output inline, then runs
 **test** only if quality passed. Use `--skip <verb>` (repeatable) to omit a step,
 `--fail-fast` to stop at the first failure, `--fix` to apply format+lint autofixes
@@ -97,9 +101,14 @@ baselines survive cross-platform float jitter; values are inline so `git diff` s
 `0.925 → 0.522`). Workflow: **agents compare, humans bless** — `pyclawd golden`
 gates, `pyclawd golden update [-k EXPR]` records an *intended* change (merges, never
 wipes others), then a human reviews the baseline `git diff` and commits; `status`
-lists snapshots, `prune` drops orphaned ones. Opt-in via `GoldenConfig` (unset →
-exit 2). Tests use `@pytest.mark.golden` + a `golden` fixture; full doctrine in the
-**`pyclawd-golden`** skill.
+lists snapshots, `prune` drops orphaned ones. Write a golden test by tagging it
+`@pytest.mark.golden` and **`return`ing the value** to snapshot — the pytest plugin
+captures the return value and compares it. It works **standalone in a bare-pytest repo
+with zero pyclawd references** (no `import pyclawd`, no `.pyclawd/config.py`): just add
+`pyclawd` as a dev-dep and run `pytest` (`pytest --golden-update` to bless). The
+`pyclawd golden` CLI is the optional wrapper; `GoldenConfig` lets it drive the plugin
+(unset → `pyclawd golden` exits 2, but the plugin still works under bare `pytest`). Full
+doctrine in the **`pyclawd-golden`** skill.
 
 ## Architecture — generic core + per-project config
 

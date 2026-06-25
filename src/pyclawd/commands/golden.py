@@ -1,12 +1,15 @@
 """Golden command group — ``pyclawd golden`` (the behavior-regression oracle).
 
 The static gate (``pyclawd check``) proves code is *clean*; ``golden`` proves
-behavior is *unchanged* by comparing observable test outputs against committed
-snapshot baselines. The engine lives in :mod:`pyclawd.golden` and the pytest
-plugin (loaded explicitly via ``-p pyclawd.pytest_plugin``); this module is the
-thin command layer that drives them.
+behavior is *unchanged* by comparing each ``@pytest.mark.golden`` test's **return
+value** against a committed snapshot baseline. The engine lives in
+:mod:`pyclawd.golden` and the standalone, auto-registered pytest plugin
+(:mod:`pyclawd.pytest_plugin`); this module is only the optional CLI wrapper that
+drives them and translates :class:`~pyclawd.project.GoldenConfig` into the plugin's
+pytest options. The plugin works in bare ``pytest`` with no pyclawd project at all;
+these commands are a convenience for projects that *do* use pyclawd.
 
-Subcommands (all driven by :class:`~pyclawd.project.GoldenConfig`):
+Subcommands (driven by :class:`~pyclawd.project.GoldenConfig`):
 
 - ``pyclawd golden`` (default) — **compare**: run the golden suite as a gate.
 - ``pyclawd golden update`` — **bless**: re-record baselines (humans bless,
@@ -23,7 +26,6 @@ Exit-code contract (agent-native, deterministic):
 
 from __future__ import annotations
 
-import os
 import subprocess
 
 import typer
@@ -31,12 +33,6 @@ import typer
 from .. import run
 from ..golden import GoldenStore, iter_baseline_files
 from ..project import GoldenConfig, Project
-
-#: Environment variable that signals the pytest plugin to record (bless) baselines.
-UPDATE_ENV = "PYCLAWD_GOLDEN_UPDATE"
-
-#: pytest plugin module the golden commands load explicitly (it is not auto-registered).
-_PLUGIN = "pyclawd.pytest_plugin"
 
 
 def _golden_or_exit(project: Project) -> GoldenConfig:
@@ -58,15 +54,45 @@ def _golden_or_exit(project: Project) -> GoldenConfig:
     return project.golden
 
 
+def _golden_opts(golden: GoldenConfig) -> list[str]:
+    """Translate :class:`GoldenConfig` into the plugin's pytest ``-o`` overrides.
+
+    Feeds the auto-registered plugin the project's baseline dir / marker /
+    tolerances, so a pyclawd project drives golden from ``.pyclawd/config.py`` while
+    the plugin itself stays config-via-pytest-ini for bare-pytest projects.
+
+    Args:
+        golden: The golden configuration.
+
+    Returns:
+        A list of ``-o key=value`` argv pairs.
+    """
+    return [
+        "-o",
+        f"golden_dir={golden.baseline_dir}",
+        "-o",
+        f"golden_marker={golden.marker}",
+        "-o",
+        f"golden_precision={golden.precision}",
+        "-o",
+        f"golden_rtol={golden.rtol}",
+        "-o",
+        f"golden_atol={golden.atol}",
+    ]
+
+
 def _pytest_cmd(project: Project, golden: GoldenConfig) -> list[str]:
-    """Build the base pytest argv that selects the golden suite with the plugin.
+    """Build the base pytest argv that selects the golden suite.
+
+    The plugin is auto-registered via its ``pytest11`` entry point, so it is **not**
+    passed with ``-p`` (that would double-register and crash).
 
     Args:
         project: The loaded project (provides the env prefix + tests dir).
-        golden: The golden configuration (provides the marker).
+        golden: The golden configuration (provides the marker + tolerances).
 
     Returns:
-        The argv ``<python> -m pytest <tests_dir> -p <plugin> -m <marker>``.
+        The argv ``<python> -m pytest <tests_dir> -o golden_*=… -m <marker>``.
     """
     prefix = run.python_prefix(project)
     return [
@@ -74,8 +100,7 @@ def _pytest_cmd(project: Project, golden: GoldenConfig) -> list[str]:
         "-m",
         "pytest",
         project.test.tests_dir,
-        "-p",
-        _PLUGIN,
+        *_golden_opts(golden),
         "-m",
         golden.marker,
     ]
@@ -121,9 +146,9 @@ def _parse_nodeids(text: str) -> set[str]:
 def _collect_nodeids(project: Project, golden: GoldenConfig) -> set[str] | None:
     """Collect the golden suite's node ids, or ``None`` if collection fails.
 
-    Runs ``pytest --collect-only -q -m <marker> -p <plugin>`` and parses the
-    node-id lines. Returns ``None`` (so callers skip orphan detection gracefully)
-    when pytest cannot be launched or exits non-zero.
+    Runs ``pytest --collect-only -q -m <marker>`` (the plugin is auto-registered)
+    and parses the node-id lines. Returns ``None`` (so callers skip orphan detection
+    gracefully) when pytest cannot be launched or exits non-zero.
 
     Args:
         project: The loaded project (provides the env + root).
@@ -138,12 +163,11 @@ def _collect_nodeids(project: Project, golden: GoldenConfig) -> set[str] | None:
         "-m",
         "pytest",
         project.test.tests_dir,
+        *_golden_opts(golden),
         "--collect-only",
         "-q",
         "-m",
         golden.marker,
-        "-p",
-        _PLUGIN,
     ]
     assert project.root is not None
     try:
@@ -184,17 +208,16 @@ def update(
 ) -> None:
     """Bless baselines — re-record the golden suite (humans bless; agents compare).
 
-    Sets ``PYCLAWD_GOLDEN_UPDATE=1`` so the plugin records fresh baselines instead
-    of gating. With ``-k EXPR`` only the matched cases are re-blessed, leaving the
-    rest untouched. After it runs, **review** ``git diff`` of the baseline dir and
-    commit deliberately — never auto-bless in an autonomous loop.
+    Passes ``--golden-update`` so the plugin records fresh baselines instead of
+    gating. With ``-k EXPR`` only the matched cases are re-blessed, leaving the rest
+    untouched. After it runs, **review** ``git diff`` of the baseline dir and commit
+    deliberately — never auto-bless in an autonomous loop.
     """
     project = run.load_project_or_exit()
     golden = _golden_or_exit(project)
-    cmd = _pytest_cmd(project, golden)
+    cmd = [*_pytest_cmd(project, golden), "--golden-update"]
     if expr:
         cmd += ["-k", expr]
-    os.environ[UPDATE_ENV] = "1"
     code = run.run(cmd, project.root)
     typer.secho(
         f"\nReview `git diff {golden.baseline_dir}` and commit the blessed baselines.",
