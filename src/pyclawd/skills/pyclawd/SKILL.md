@@ -373,12 +373,36 @@ all three override levers every time — set or not:
 
 | Env var | What it overrides |
 |---|---|
-| `PYCLAWD_CONFIG` | Which config file to load (default: walk-up from cwd) |
+| `PYCLAWD_CONFIG` | A specific config file/dir to load (default: walk-up from cwd) |
+| `PYCLAWD_DISCOVERY` | Search path of config dirs for walk-up (default: `.pyclawd`) |
 | `PYCLAWD_PYTHON` | Python interpreter for all commands (default: sys.executable) |
 | `PYCLAWD_WORK_DIR` | Where logs and junit XML are written (default: tmpdir) |
 
 Reading `.pyclawd/config.py` directly gives you the full structure and comments.
 Use both: `pyclawd config` for orientation, `config.py` for understanding intent.
+
+### Using pyclawd without committing the config
+
+Some repos (e.g. shared/work repos) shouldn't carry a `.pyclawd/` folder. Keep the
+config **uncommitted and local** instead of pointing a global `PYCLAWD_CONFIG` at a
+fixed path (an absolute env var can't serve multiple repos — it pins one root):
+
+```bash
+# one-time, in your shell profile — safe globally because it's a RELATIVE pattern,
+# resolved per-cwd, so every repo/project still finds its own config:
+export PYCLAWD_DISCOVERY=".local/.pyclawd:.pyclawd"
+
+# per repo, once:
+mkdir -p .local/.pyclawd && pyclawd new            # write .local/.pyclawd/config.py
+echo ".local/" >> .gitignore                       # never committed
+```
+
+Now `cd` into any repo and `pyclawd <verb>` walks up from cwd, finds
+`<repo>/.local/.pyclawd/config.py`, and resolves `root` back to `<repo>` (the
+`.local/.pyclawd` wrapper is stripped). A committed `.pyclawd/` still works as the
+fallback. `PYCLAWD_DISCOVERY` entries are `os.pathsep`-separated, first match wins.
+The simpler alternative — keep `.pyclawd/` but gitignore it — also works if you
+don't mind the folder existing in the repo dir.
 
 ---
 

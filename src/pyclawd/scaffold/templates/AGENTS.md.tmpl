@@ -53,7 +53,11 @@ root on `PYTHONPATH`. Bare `python` misses the env and the in-tree source.
 | Repo root | `pyclawd root` |
 
 Run `pyclawd config` first — it shows the exact command every verb resolves to and
-the `PYCLAWD_*` override knobs. `pyclawd check` runs all quality steps (format-check
+the `PYCLAWD_*` override knobs (`PYCLAWD_CONFIG`, `PYCLAWD_DISCOVERY`,
+`PYCLAWD_PYTHON`, `PYCLAWD_WORK_DIR`). To use pyclawd **without committing** a
+`.pyclawd/` folder, set `PYCLAWD_DISCOVERY=".local/.pyclawd:.pyclawd"` (relative →
+safe globally) and keep a gitignored `<repo>/.local/.pyclawd/config.py`.
+`pyclawd check` runs all quality steps (format-check
 → lint → typecheck) **regardless of individual failures**, streaming output inline,
 then runs **test** only if quality passed. Use `--skip <verb>` (repeatable) to omit
 a step, `--fail-fast` to stop at the first failure, `--fix` to apply format+lint

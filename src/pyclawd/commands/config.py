@@ -14,8 +14,8 @@ import typer
 from rich.console import Console
 from rich.table import Table
 
+from ..discovery import DISCOVERY_ENV, ConfigError, _discovery_entries, load_project
 from ..discovery import ENV_VAR as CONFIG_ENV
-from ..discovery import ConfigError, load_project
 from ..logs import WORK_ENV, work_root
 from ..run import PYTHON_ENV, python_prefix
 
@@ -76,6 +76,12 @@ def config() -> None:
         "config file to load",
         str(project.root / ".pyclawd" / "config.py") if project.root else "?",
         config_source,
+    )
+    _env_row(
+        DISCOVERY_ENV,
+        "config-dir search path (walk-up)",
+        os.pathsep.join(_discovery_entries()),
+        "default" if not os.environ.get(DISCOVERY_ENV) else "",
     )
     _env_row(PYTHON_ENV, "Python command for all verbs", python_shown, python_source)
     _env_row(WORK_ENV, "log/work directory", str(wdir), wdir_source)
