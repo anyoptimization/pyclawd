@@ -47,11 +47,14 @@ golden = "pyclawd.pytest_plugin"
 # scaffolds (the scaffold teaches `[dependency-groups]`, so the dogfood matches).
 # A thin `[project.optional-dependencies] dev` mirrors it so the simple
 # `pip install -e ".[dev]"` keeps working for tools that don't yet read groups.
+# numpy is in dev only — it is an OPTIONAL runtime dep of golden (the engine
+# imports it lazily and degrades without it), but the test suite exercises the
+# numpy snapshot path, so CI needs it. End users who only snapshot floats need none.
 [dependency-groups]
-dev = ["pytest>=8", "pytest-xdist>=3", "ruff>=0.6", "mypy>=1.10"]
+dev = ["pytest>=8", "pytest-xdist>=3", "ruff>=0.6", "mypy>=1.10", "numpy>=1.24"]
 
 [project.optional-dependencies]
-dev = ["pytest>=8", "pytest-xdist>=3", "ruff>=0.6", "mypy>=1.10"]
+dev = ["pytest>=8", "pytest-xdist>=3", "ruff>=0.6", "mypy>=1.10", "numpy>=1.24"]
 
 [tool.hatch.version]
 path = "src/pyclawd/__init__.py"

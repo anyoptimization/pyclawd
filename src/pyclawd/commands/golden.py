@@ -180,7 +180,11 @@ def _collect_nodeids(project: Project, golden: GoldenConfig) -> set[str] | None:
         )
     except OSError:
         return None
-    if proc.returncode != 0:
+    # pytest exit 5 = "no tests collected" — a valid empty result (e.g. every golden
+    # test was removed), NOT a collection failure. Treat it as an empty set so prune
+    # can drop the now-orphaned baselines instead of refusing.
+    no_tests_collected = 5
+    if proc.returncode not in (0, no_tests_collected):
         return None
     return _parse_nodeids(proc.stdout)
 

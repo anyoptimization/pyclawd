@@ -158,6 +158,7 @@ def _run(pytester: pytest.Pytester, *args: str) -> pytest.RunResult:
 
 
 def test_update_records_baseline(pytester: pytest.Pytester) -> None:
+    pytest.importorskip("numpy")  # the demo module snapshots an np.ndarray
     _scaffold(pytester)
     _run(pytester, "--golden-update").assert_outcomes(passed=2)
 
@@ -172,6 +173,7 @@ def test_update_records_baseline(pytester: pytest.Pytester) -> None:
 
 
 def test_compare_passes_against_baseline(pytester: pytest.Pytester) -> None:
+    pytest.importorskip("numpy")  # the demo module snapshots an np.ndarray
     _scaffold(pytester)
     _run(pytester, "--golden-update").assert_outcomes(passed=2)
     # Compare mode hits the just-recorded baseline.
@@ -179,6 +181,7 @@ def test_compare_passes_against_baseline(pytester: pytest.Pytester) -> None:
 
 
 def test_compare_detects_drift(pytester: pytest.Pytester, monkeypatch: pytest.MonkeyPatch) -> None:
+    pytest.importorskip("numpy")  # the demo module snapshots an np.ndarray
     monkeypatch.setenv("PYTHONDONTWRITEBYTECODE", "1")
     _scaffold(pytester)
     _run(pytester, "--golden-update").assert_outcomes(passed=2)
