@@ -133,3 +133,28 @@ def test_vendor_copies_engine_and_plugin(tmp_path: Path) -> None:
     assert "from pyclawd.golden import" not in plugin
     # provenance header stamped
     assert "Vendored from pyclawd" in (dest / "golden.py").read_text()
+
+
+def test_compare_appends_k_expr(monkeypatch: pytest.MonkeyPatch) -> None:
+    """`pyclawd golden -k EXPR` threads the keyword filter into the pytest command."""
+    project = _project(root=Path("/tmp/repo"), golden=GoldenConfig())
+    captured: list[list[str]] = []
+    monkeypatch.setattr(golden_cmd.run, "load_project_or_exit", lambda: project)
+    monkeypatch.setattr(golden_cmd.run, "python_prefix", lambda p: ["python"])
+    monkeypatch.setattr(golden_cmd.run, "run", lambda cmd, root: (captured.append(cmd), 0)[1])
+    with pytest.raises(typer.Exit) as exc:
+        golden_cmd._compare("front")
+    assert exc.value.exit_code == 0
+    assert captured[0][-2:] == ["-k", "front"]
+
+
+def test_compare_without_k_has_no_filter(monkeypatch: pytest.MonkeyPatch) -> None:
+    """No `-k` means the whole golden tier is compared."""
+    project = _project(root=Path("/tmp/repo"), golden=GoldenConfig())
+    captured: list[list[str]] = []
+    monkeypatch.setattr(golden_cmd.run, "load_project_or_exit", lambda: project)
+    monkeypatch.setattr(golden_cmd.run, "python_prefix", lambda p: ["python"])
+    monkeypatch.setattr(golden_cmd.run, "run", lambda cmd, root: (captured.append(cmd), 0)[1])
+    with pytest.raises(typer.Exit):
+        golden_cmd._compare(None)
+    assert "-k" not in captured[0]

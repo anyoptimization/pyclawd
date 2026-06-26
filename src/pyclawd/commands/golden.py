@@ -195,11 +195,18 @@ def _collect_nodeids(project: Project, golden: GoldenConfig) -> set[str] | None:
 # --------------------------------------------------------------------------- #
 
 
-def _compare() -> None:
-    """Run the golden suite as a gate (the default ``pyclawd golden`` action)."""
+def _compare(expr: str | None = None) -> None:
+    """Run the golden suite as a gate (the default ``pyclawd golden`` action).
+
+    Args:
+        expr: Optional pytest ``-k`` keyword expression to select a subset of
+            golden tests to compare.
+    """
     project = run.load_project_or_exit()
     golden = _golden_or_exit(project)
     cmd = _pytest_cmd(project, golden)
+    if expr:
+        cmd += ["-k", expr]
     raise typer.Exit(run.run(cmd, project.root))
 
 
@@ -402,11 +409,22 @@ def register(app: typer.Typer) -> None:
     )
 
     @golden_app.callback(invoke_without_command=True)
-    def _default(ctx: typer.Context) -> None:
-        """Compare the golden suite against committed baselines (the default action)."""
+    def _default(
+        ctx: typer.Context,
+        expr: str = typer.Option(
+            None,
+            "-k",
+            metavar="EXPR",
+            help="Only compare golden tests matching this keyword expression (pytest -k).",
+        ),
+    ) -> None:
+        """Compare the golden suite against committed baselines (the default action).
+
+        ``pyclawd golden -k <expr>`` narrows the gate to matching golden tests.
+        """
         if ctx.invoked_subcommand is not None:
             return
-        _compare()
+        _compare(expr)
 
     golden_app.command()(update)
     golden_app.command()(status)
