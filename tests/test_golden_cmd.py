@@ -117,3 +117,19 @@ def test_compare_exits_2_when_unconfigured(monkeypatch, capsys) -> None:
         golden_cmd._compare()
     assert exc.value.exit_code == 2
     assert "golden not configured" in capsys.readouterr().err
+
+
+def test_vendor_copies_engine_and_plugin(tmp_path: Path) -> None:
+    """`pyclawd golden vendor` writes a dependency-free, import-rewritten copy."""
+    dest = tmp_path / "_golden"
+    with pytest.raises(typer.Exit) as exc:
+        golden_cmd.vendor(target=str(dest))
+    assert exc.value.exit_code == 0
+    for name in ("golden.py", "plugin.py", "__init__.py"):
+        assert (dest / name).is_file(), f"vendor should write {name}"
+    plugin = (dest / "plugin.py").read_text()
+    # the engine import is rewritten to the vendored copy
+    assert "from .golden import" in plugin
+    assert "from pyclawd.golden import" not in plugin
+    # provenance header stamped
+    assert "Vendored from pyclawd" in (dest / "golden.py").read_text()

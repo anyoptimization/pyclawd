@@ -27,6 +27,7 @@ Exit-code contract (agent-native, deterministic):
 from __future__ import annotations
 
 import subprocess
+from pathlib import Path
 
 import typer
 
@@ -333,12 +334,68 @@ def prune() -> None:
     raise typer.Exit(0)
 
 
+def vendor(
+    target: str = typer.Argument(
+        ..., help="Directory to vendor the golden engine + plugin into, e.g. tests/_golden."
+    ),
+) -> None:
+    """Copy the dependency-free golden engine + plugin into a project — no pyclawd dep.
+
+    golden's engine (``pyclawd.golden``) is stdlib-only (numpy lazy/optional) and the
+    plugin imports only the engine, so the two files vendor cleanly. After vendoring,
+    a framework runs ``@pytest.mark.golden`` return-capture tests with **its own
+    pytest** — pyclawd is never imported, installed, or a dependency. Commit the two
+    files + your baselines; re-run this to update them.
+
+    Writes ``<target>/golden.py`` (engine, verbatim), ``<target>/plugin.py`` (plugin,
+    with its engine import rewritten to the vendored copy), and ``<target>/__init__.py``,
+    then prints the one ``conftest.py`` line to register it.
+    """
+    import pyclawd
+
+    pkg_root = Path(__file__).resolve().parent.parent  # the installed src/pyclawd/
+    version = pyclawd.__version__
+    header = (
+        f"# Vendored from pyclawd {version} — do not edit by hand.\n"
+        f"# Re-run `pyclawd golden vendor {target}` to update.\n"
+    )
+
+    dest = Path(target)
+    dest.mkdir(parents=True, exist_ok=True)
+
+    engine = (pkg_root / "golden.py").read_text()
+    plugin = (pkg_root / "pytest_plugin.py").read_text()
+    # Rewrite the engine import so the vendored plugin uses the vendored engine.
+    plugin = plugin.replace("from pyclawd.golden import", "from .golden import")
+
+    (dest / "golden.py").write_text(header + engine)
+    (dest / "plugin.py").write_text(header + plugin)
+    (dest / "__init__.py").write_text(header)
+
+    pkg = ".".join(dest.parts)
+    typer.secho(
+        f"✓ vendored golden into {dest}/ (engine + plugin — dependency-free, no pyclawd)",
+        fg="green",
+    )
+    typer.echo("\nRegister it in your top-level conftest.py:")
+    typer.secho(f'    pytest_plugins = ["{pkg}.plugin"]', fg="cyan")
+    typer.echo("\nWrite @pytest.mark.golden tests that `return` a value, then bless with:")
+    typer.secho("    pytest -m golden --golden-update", fg="cyan")
+    typer.secho(
+        "\nNote: only vendor in projects that do NOT install pyclawd — running both the "
+        "vendored plugin and pyclawd's entry-point plugin double-registers and errors.",
+        fg="yellow",
+    )
+    raise typer.Exit(0)
+
+
 def register(app: typer.Typer) -> None:
     """Attach the ``golden`` command group to *app*.
 
     The default invocation (``pyclawd golden``) compares; ``update`` / ``status`` /
-    ``prune`` are subcommands. Always registered — each self-reports and exits ``2``
-    when the loaded project does not configure golden.
+    ``prune`` / ``vendor`` are subcommands. Always registered — each self-reports and
+    exits ``2`` when the loaded project does not configure golden (``vendor`` needs no
+    project).
     """
     golden_app = typer.Typer(
         help="Behavior-regression oracle: compare observable outputs to committed baselines.",
@@ -354,4 +411,5 @@ def register(app: typer.Typer) -> None:
     golden_app.command()(update)
     golden_app.command()(status)
     golden_app.command()(prune)
+    golden_app.command()(vendor)
     app.add_typer(golden_app, name="golden")
