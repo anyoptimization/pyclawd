@@ -116,3 +116,12 @@ check_untyped_defs = true
 # errors when mypy resolves a single source file by path instead of by name.
 explicit_package_bases = true
 mypy_path = "."
+
+# numpy is an optional dep used only via `Any` (lazy import in pyclawd.golden).
+# Don't follow into its stubs: with python_version pinned to 3.10, mypy rejects the
+# PEP 695 `type` statements in newer numpy stubs (installed on 3.12/3.13 runners).
+# We gain nothing from numpy's types here, so skip them.
+[[tool.mypy.overrides]]
+module = ["numpy", "numpy.*"]
+follow_imports = "skip"
+follow_imports_for_stubs = true
