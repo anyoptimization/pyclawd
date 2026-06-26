@@ -11,6 +11,10 @@ argv comes from the project's `.pyclawd/config.py` (`QualityConfig`) — nothing
 about ruff/mypy is hardcoded. If quality is unconfigured, the affected command
 self-reports and exits 2 instead of crashing.
 
+> `pyclawd check` proves code **clean** (static); it cannot prove behavior is
+> **unchanged**. That's the `golden` oracle's job (`@pytest.mark.golden` + a
+> committed baseline) — see **`pyclawd-golden`**. The two are complementary gates.
+
 ---
 
 ## Commands

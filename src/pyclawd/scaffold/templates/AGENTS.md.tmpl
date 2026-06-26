@@ -39,7 +39,7 @@ root on `PYTHONPATH`. Bare `python` misses the env and the in-tree source.
 | Select tests | `pyclawd test -k <kw>` · `pyclawd test tests/path::node` |
 | Fix-loop | `pyclawd test failures` → `pyclawd test fix` → `pyclawd test run` |
 | Coverage | `pyclawd coverage [--check] [--html]` |
-| Prove behavior unchanged | `pyclawd golden` · `golden update [-k EXPR]` · `status` · `prune` |
+| Prove behavior unchanged | `pyclawd golden [-k EXPR]` · `golden update [-k EXPR]` · `status` · `prune` · `vendor <file>` |
 | Lint / autofix | `pyclawd lint` · `pyclawd lint --fix` · `pyclawd lint <file...>` |
 | Format / check | `pyclawd format` · `pyclawd format --check` · `pyclawd format <file...>` |
 | Type-check | `pyclawd typecheck` · `pyclawd typecheck <file...>` |
@@ -87,9 +87,14 @@ baselines survive cross-platform float jitter; values are inline so `git diff` s
 `0.925 → 0.522`). Workflow: **agents compare, humans bless** — `pyclawd golden`
 gates, `pyclawd golden update [-k EXPR]` records an *intended* change (merges, never
 wipes others), then a human reviews the baseline `git diff` and commits; `status`
-lists snapshots, `prune` drops orphaned ones. Opt-in via `GoldenConfig` (unset →
-exit 2). Tests use `@pytest.mark.golden` + a `golden` fixture; full doctrine in the
-**`pyclawd-golden`** skill.
+lists snapshots, `prune` drops orphaned ones. Write a golden test by tagging it
+`@pytest.mark.golden` and **`return`ing the value** to snapshot — the pytest plugin
+captures it (there is no fixture). It works **standalone in a bare-pytest repo with
+zero pyclawd references**; `pyclawd golden` is the optional CLI wrapper (`GoldenConfig`
+drives it; unset → exit 2). For zero pyclawd dependency, `pyclawd golden vendor <file>`
+copies the plugin into one self-contained file. golden is a **separate tier** —
+exclude it from the unit tiers (`"default": "not slow and not golden"`) and run it as
+its own gate. Full doctrine in the **`pyclawd-golden`** skill.
 
 ## Architecture — generic core + per-project config
 

@@ -124,6 +124,7 @@ record/bless a baseline, pass the update flag:
 pytest --golden-update         # BARE PYTEST: record/bless baselines (no pyclawd needed)
 
 pyclawd golden                 # GATE: compare against committed baselines (the default)
+pyclawd golden -k de           # ...compare only golden tests matching a keyword
 pyclawd golden update          # RECORD/bless baselines after an *intended* change
 pyclawd golden update -k de    # bless only matching cases (merges — never wipes others)
 git diff <baseline-dir>        # REVIEW the value changes — this diff is the record
@@ -131,6 +132,9 @@ git commit                     # commit the reviewed baselines
 pyclawd golden status          # list snapshots; flag orphaned/missing baselines
 pyclawd golden prune           # remove baselines whose tests no longer exist
 ```
+
+`-k <expr>` selects on **both** the compare gate (`pyclawd golden -k`) and the bless
+(`pyclawd golden update -k`).
 
 `pytest --golden-update` and `pyclawd golden update` do the same thing — record
 the captured return values as the new baselines. Use whichever fits the project;
@@ -148,6 +152,54 @@ record of what behavior changed and why.
 `golden update -k` and `prune` are separate on purpose: a filtered update only
 touches matched cases (so running a subset never wipes the rest), and removing
 orphaned baselines is an explicit step, never inferred from "didn't run".
+
+---
+
+## Golden is a separate tier — keep it out of the unit suite
+
+A golden test needs its committed baseline and answers "did a number move?", not
+"is this logic correct?". Running it in the default suite is noise — a fresh
+checkout without baselines fails, and mid-refactor it flags until you bless. So
+treat `golden` like `slow`/`integration`: **a deselected marker, run as its own
+gate.**
+
+```python
+# .pyclawd/config.py — exclude golden from the unit tiers
+markers={
+  "fast":    "not slow and not integration and not golden",
+  "default": "not slow and not golden",
+  "all":     "not golden",        # even `all` skips golden — it's a separate gate
+}
+```
+
+`pyclawd test` / `pyclawd check` then run the unit suite; `pyclawd golden` (or
+`pytest -m golden`) runs the behavior gate as its own CI step.
+
+---
+
+## Vendoring — golden with zero pyclawd dependency
+
+A framework that wants golden to run **at commit time without depending on pyclawd**
+(not installed, not even a dev-dep) vendors the engine + plugin as one
+self-contained file:
+
+```bash
+pyclawd golden vendor tests/golden_plugin.py   # writes ONE dependency-free file
+```
+
+Register it once in the top-level `conftest.py`:
+
+```python
+pytest_plugins = ["tests.golden_plugin"]
+```
+
+Now `@pytest.mark.golden` + return-capture works under the framework's **own**
+pytest — pyclawd is never imported or installed. Commit the vendored file + the
+baselines; re-run `pyclawd golden vendor` to update it.
+
+> Only vendor in projects that do **not** also install pyclawd — the entry-point
+> plugin and the vendored plugin would double-register and error. Install pyclawd
+> *or* vendor, not both.
 
 ---
 

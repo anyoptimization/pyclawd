@@ -42,7 +42,7 @@ on `PYTHONPATH`. Bare `python` misses the env and the in-tree source.
 | Fix-loop | `pyclawd test failures` → `pyclawd test fix` → `pyclawd test run` |
 | Slowest tests | `pyclawd test timings [--top N] [--slow-threshold S]` (S = list tests slower than S seconds — `slow`-marker candidates) |
 | Coverage | `pyclawd coverage [--check] [--html]` |
-| Prove behavior unchanged | `pyclawd golden` · `golden update [-k EXPR]` · `status` · `prune` (bare pytest: `@pytest.mark.golden` + `return`; bless with `pytest --golden-update`) |
+| Prove behavior unchanged | `pyclawd golden [-k EXPR]` · `golden update [-k EXPR]` · `status` · `prune` · `vendor <file>` (bare pytest: `@pytest.mark.golden` + `return`; bless with `pytest --golden-update`) |
 | Lint / autofix | `pyclawd lint` · `pyclawd lint --fix` · `pyclawd lint <file...>` |
 | Format / check | `pyclawd format` · `pyclawd format --check` · `pyclawd format <file...>` |
 | Type-check | `pyclawd typecheck` · `pyclawd typecheck <file...>` |
@@ -105,7 +105,11 @@ lists snapshots, `prune` drops orphaned ones. Write a golden test by tagging it
 `@pytest.mark.golden` and **`return`ing the value** to snapshot — the pytest plugin
 captures the return value and compares it. It works **standalone in a bare-pytest repo
 with zero pyclawd references** (no `import pyclawd`, no `.pyclawd/config.py`): just add
-`pyclawd` as a dev-dep and run `pytest` (`pytest --golden-update` to bless). The
+`pyclawd` as a dev-dep and run `pytest` (`pytest --golden-update` to bless). For
+**zero pyclawd dependency at all**, `pyclawd golden vendor <file>` copies the engine +
+plugin into one self-contained file the project commits and registers via
+`pytest_plugins`. golden is a **separate tier** — exclude it from the unit tiers
+(`"default": "not slow and not golden"`) and run it as its own gate. The
 `pyclawd golden` CLI is the optional wrapper; `GoldenConfig` lets it drive the plugin
 (unset → `pyclawd golden` exits 2, but the plugin still works under bare `pytest`). Full
 doctrine in the **`pyclawd-golden`** skill.

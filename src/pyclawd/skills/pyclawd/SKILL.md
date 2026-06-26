@@ -166,13 +166,21 @@ pyclawd check --skip test            # quality only, no tests
 pyclawd check --skip typecheck       # format + lint only
 pyclawd check --fail-fast            # stop at first failure (CI mode)
 pyclawd check src/mypkg/foo.py       # quality on one file — parallelization
+pyclawd check --changed              # scope to git-changed source files
+pyclawd check --json                 # machine-readable per-step result (orchestration)
 pyclawd check --log                  # also write each step's output to a log file
 ```
 
 All output is printed inline — you can read it directly in the terminal or
 conversation context. `--log` additionally writes each failing step to a file and
 shows the path in the summary; use it for CI artifacts or when you want a
-persistent record.
+persistent record. A **path-scoped** run (positional paths, `--changed`, or
+`--json`) is **quality-only** by default — the whole-suite test step never scopes
+to a file, so it's dropped unless you pass `--test`. See `pyclawd-quality`.
+
+`pyclawd check` proves code **clean**; it can't prove behavior is **unchanged** —
+that's the `golden` oracle (`@pytest.mark.golden` + committed baselines, a separate
+gate run via `pyclawd golden`). See **`pyclawd-golden`**.
 
 The summary is always printed:
 ```
