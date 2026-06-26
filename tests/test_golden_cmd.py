@@ -119,20 +119,32 @@ def test_compare_exits_2_when_unconfigured(monkeypatch, capsys) -> None:
     assert "golden not configured" in capsys.readouterr().err
 
 
-def test_vendor_copies_engine_and_plugin(tmp_path: Path) -> None:
-    """`pyclawd golden vendor` writes a dependency-free, import-rewritten copy."""
-    dest = tmp_path / "_golden"
+def test_vendor_writes_single_self_contained_file(tmp_path: Path) -> None:
+    """`pyclawd golden vendor` writes one dependency-free, import-spliced module."""
+    dest = tmp_path / "golden_plugin.py"
     with pytest.raises(typer.Exit) as exc:
         golden_cmd.vendor(target=str(dest))
     assert exc.value.exit_code == 0
-    for name in ("golden.py", "plugin.py", "__init__.py"):
-        assert (dest / name).is_file(), f"vendor should write {name}"
-    plugin = (dest / "plugin.py").read_text()
-    # the engine import is rewritten to the vendored copy
-    assert "from .golden import" in plugin
-    assert "from pyclawd.golden import" not in plugin
-    # provenance header stamped
-    assert "Vendored from pyclawd" in (dest / "golden.py").read_text()
+    assert dest.is_file()
+    src = dest.read_text()
+    # the engine import is gone (engine is spliced inline), provenance stamped
+    assert "from pyclawd.golden import" not in src
+    assert "Vendored golden" in src and "from pyclawd" in src
+    # both the engine and the plugin made it into the one file
+    assert "def make_entry(" in src and "def pytest_pyfunc_call(" in src
+    # exactly one `from __future__` (the spliced plugin's was dropped)
+    assert src.count("from __future__ import annotations") == 1
+    # and it actually parses as valid Python
+    import ast
+
+    ast.parse(src)
+
+
+def test_vendor_adds_py_suffix(tmp_path: Path) -> None:
+    """A target without .py gets it, so `vendor tests/golden_plugin` works."""
+    with pytest.raises(typer.Exit):
+        golden_cmd.vendor(target=str(tmp_path / "golden_plugin"))
+    assert (tmp_path / "golden_plugin.py").is_file()
 
 
 def test_compare_appends_k_expr(monkeypatch: pytest.MonkeyPatch) -> None:

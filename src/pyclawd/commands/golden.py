@@ -11,11 +11,14 @@ these commands are a convenience for projects that *do* use pyclawd.
 
 Subcommands (driven by :class:`~pyclawd.project.GoldenConfig`):
 
-- ``pyclawd golden`` (default) — **compare**: run the golden suite as a gate.
-- ``pyclawd golden update`` — **bless**: re-record baselines (humans bless,
-  agents only compare — never wire this into an autonomous self-gate).
+- ``pyclawd golden [-k EXPR]`` (default) — **compare**: run the golden suite as a
+  gate, optionally narrowed to matching tests.
+- ``pyclawd golden update [-k EXPR]`` — **bless**: re-record baselines (humans
+  bless, agents only compare — never wire this into an autonomous self-gate).
 - ``pyclawd golden status`` — inventory the committed baselines (+ orphan hint).
 - ``pyclawd golden prune`` — drop orphaned baseline entries whose test is gone.
+- ``pyclawd golden vendor <file>`` — copy the engine + plugin into a single
+  self-contained file so a project runs golden with **zero pyclawd dependency**.
 
 Exit-code contract (agent-native, deterministic):
 
@@ -341,51 +344,93 @@ def prune() -> None:
     raise typer.Exit(0)
 
 
+def _strip_preamble(src: str, *, drop_future: bool = False, drop_module: str | None = None) -> str:
+    """Return *src* with its module docstring (and optionally ``__future__`` / one import) removed.
+
+    Used to splice the engine and plugin into one module: only the merged file's
+    leading docstring and single ``from __future__`` survive, and the plugin's
+    ``from pyclawd.golden import …`` is dropped because the engine is now inline.
+
+    Args:
+        src: Python source.
+        drop_future: Also remove the ``from __future__ import annotations`` line.
+        drop_module: Also remove a ``from <drop_module> import …`` line.
+
+    Returns:
+        The source with those leading lines removed.
+    """
+    import ast
+
+    tree = ast.parse(src)
+    drop: set[int] = set()
+    body = tree.body
+    if (
+        body
+        and isinstance(body[0], ast.Expr)
+        and isinstance(body[0].value, ast.Constant)
+        and isinstance(body[0].value.value, str)
+    ):
+        drop.update(range(body[0].lineno, (body[0].end_lineno or body[0].lineno) + 1))
+    for node in body:
+        if not isinstance(node, ast.ImportFrom):
+            continue
+        is_future = drop_future and node.module == "__future__"
+        is_drop_mod = drop_module is not None and node.module == drop_module
+        if is_future or is_drop_mod:
+            drop.update(range(node.lineno, (node.end_lineno or node.lineno) + 1))
+    return "".join(line for i, line in enumerate(src.splitlines(keepends=True), 1) if i not in drop)
+
+
 def vendor(
     target: str = typer.Argument(
-        ..., help="Directory to vendor the golden engine + plugin into, e.g. tests/_golden."
+        ...,
+        help="File to vendor the self-contained golden plugin into, e.g. tests/golden_plugin.py.",
     ),
 ) -> None:
-    """Copy the dependency-free golden engine + plugin into a project — no pyclawd dep.
+    """Vendor golden as a single self-contained file — zero pyclawd dependency.
 
     golden's engine (``pyclawd.golden``) is stdlib-only (numpy lazy/optional) and the
-    plugin imports only the engine, so the two files vendor cleanly. After vendoring,
-    a framework runs ``@pytest.mark.golden`` return-capture tests with **its own
-    pytest** — pyclawd is never imported, installed, or a dependency. Commit the two
-    files + your baselines; re-run this to update them.
+    plugin imports only the engine, so the two splice into **one module**. After
+    vendoring, a framework runs ``@pytest.mark.golden`` return-capture tests with
+    **its own pytest** — pyclawd is never imported, installed, or a dependency.
+    Commit the file + your baselines; re-run this to update it.
 
-    Writes ``<target>/golden.py`` (engine, verbatim), ``<target>/plugin.py`` (plugin,
-    with its engine import rewritten to the vendored copy), and ``<target>/__init__.py``,
-    then prints the one ``conftest.py`` line to register it.
+    Writes one ``<target>.py`` (engine + plugin spliced together) and prints the one
+    ``conftest.py`` line to register it.
     """
     import pyclawd
 
     pkg_root = Path(__file__).resolve().parent.parent  # the installed src/pyclawd/
     version = pyclawd.__version__
-    header = (
-        f"# Vendored from pyclawd {version} — do not edit by hand.\n"
-        f"# Re-run `pyclawd golden vendor {target}` to update.\n"
-    )
 
     dest = Path(target)
-    dest.mkdir(parents=True, exist_ok=True)
+    if dest.suffix != ".py":
+        dest = dest.with_suffix(".py")
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    modpath = ".".join(dest.with_suffix("").parts)
 
     engine = (pkg_root / "golden.py").read_text()
     plugin = (pkg_root / "pytest_plugin.py").read_text()
-    # Rewrite the engine import so the vendored plugin uses the vendored engine.
-    plugin = plugin.replace("from pyclawd.golden import", "from .golden import")
+    docstring = (
+        f'"""Vendored golden (engine + pytest plugin) from pyclawd {version} — do not edit.\n\n'
+        f"Self-contained, dependency-free. Register it in your top-level conftest.py with\n"
+        f'``pytest_plugins = ["{modpath}"]``, then write ``@pytest.mark.golden`` tests that\n'
+        f"``return`` a value. Regenerate with ``pyclawd golden vendor {target}``.\n"
+        f'"""\n'
+    )
+    merged = (
+        docstring
+        + _strip_preamble(engine)
+        + "\n\n# === pytest plugin (spliced from pyclawd.pytest_plugin) ===\n\n"
+        + _strip_preamble(plugin, drop_future=True, drop_module="pyclawd.golden")
+    )
+    dest.write_text(merged)
 
-    (dest / "golden.py").write_text(header + engine)
-    (dest / "plugin.py").write_text(header + plugin)
-    (dest / "__init__.py").write_text(header)
-
-    pkg = ".".join(dest.parts)
     typer.secho(
-        f"✓ vendored golden into {dest}/ (engine + plugin — dependency-free, no pyclawd)",
-        fg="green",
+        f"✓ vendored golden into {dest} (one file — dependency-free, no pyclawd)", fg="green"
     )
     typer.echo("\nRegister it in your top-level conftest.py:")
-    typer.secho(f'    pytest_plugins = ["{pkg}.plugin"]', fg="cyan")
+    typer.secho(f'    pytest_plugins = ["{modpath}"]', fg="cyan")
     typer.echo("\nWrite @pytest.mark.golden tests that `return` a value, then bless with:")
     typer.secho("    pytest -m golden --golden-update", fg="cyan")
     typer.secho(
