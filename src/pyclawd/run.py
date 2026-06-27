@@ -46,7 +46,8 @@ def repo_root_or_exit() -> Path:
     root = find_repo_root()
     if root is None:
         typer.secho(
-            "Not inside a project (no .pyclawd/config.py found). cd into the repo first.",
+            "Not inside a pyclawd project (no .pyclawd/config.py). Run `pyclawd new` here to "
+            "adopt this repo (see the pyclawd-adopt skill), or cd into an existing project.",
             fg="red",
             err=True,
         )
@@ -69,7 +70,8 @@ def load_project_or_exit() -> Project:
         _exit_config_error(exc)
     if project is None:
         typer.secho(
-            "Not inside a project (no .pyclawd/config.py found). cd into the repo first.",
+            "Not inside a pyclawd project (no .pyclawd/config.py). Run `pyclawd new` here to "
+            "adopt this repo (see the pyclawd-adopt skill), or cd into an existing project.",
             fg="red",
             err=True,
         )

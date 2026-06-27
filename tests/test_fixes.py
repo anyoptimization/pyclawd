@@ -18,7 +18,7 @@ from pathlib import Path
 import pytest
 import typer
 
-from pyclawd import ConfigError, DoctorConfig, Project, TestConfig, load_project
+from pyclawd import BuildConfig, ConfigError, DoctorConfig, Project, TestConfig, load_project
 from pyclawd.commands import build as build_cmd
 from pyclawd.commands import docs as docs_cmd
 from pyclawd.project import FAIL, Check
@@ -54,7 +54,7 @@ def test_clean_skips_targets_outside_root(tmp_path, monkeypatch, capsys):
     victim.mkdir()
     (victim / "keep.txt").write_text("important")
 
-    project = _project(root=repo, clean_targets=["../victim"])
+    project = _project(root=repo, build=BuildConfig(clean_targets=["../victim"]))
     monkeypatch.setattr(build_cmd.run, "load_project_or_exit", lambda: project)
 
     build_cmd.clean(ext=False)
@@ -70,7 +70,7 @@ def test_clean_removes_targets_inside_root(tmp_path, monkeypatch):
     (repo / "build").mkdir(parents=True)
     (repo / "build" / "x.o").write_text("artifact")
 
-    project = _project(root=repo, clean_targets=["build"])
+    project = _project(root=repo, build=BuildConfig(clean_targets=["build"]))
     monkeypatch.setattr(build_cmd.run, "load_project_or_exit", lambda: project)
 
     build_cmd.clean(ext=False)
@@ -83,7 +83,9 @@ def test_clean_ext_removes_matching_globs(tmp_path, monkeypatch, capsys):
     (repo / "build" / "a.so").write_text("compiled")
     (repo / "build" / "keep.txt").write_text("keep me")
 
-    project = _project(root=repo, clean_ext_dir="build", clean_ext_globs=["*.so"])
+    project = _project(
+        root=repo, build=BuildConfig(clean_ext_dir="build", clean_ext_globs=["*.so"])
+    )
     monkeypatch.setattr(build_cmd.run, "load_project_or_exit", lambda: project)
 
     build_cmd.clean(ext=True)
@@ -100,7 +102,7 @@ def test_clean_ext_unconfigured(tmp_path, monkeypatch, capsys):
     (repo / "build").mkdir(parents=True)
     (repo / "build" / "a.so").write_text("compiled")
 
-    project = _project(root=repo, clean_ext_dir="", clean_ext_globs=["*.so"])
+    project = _project(root=repo, build=BuildConfig(clean_ext_dir="", clean_ext_globs=["*.so"]))
     monkeypatch.setattr(build_cmd.run, "load_project_or_exit", lambda: project)
 
     build_cmd.clean(ext=True)
@@ -118,7 +120,9 @@ def test_clean_ext_refuses_outside_root(tmp_path, monkeypatch, capsys):
     victim.mkdir()
     (victim / "lib.so").write_text("important")
 
-    project = _project(root=repo, clean_ext_dir="../victim", clean_ext_globs=["*.so"])
+    project = _project(
+        root=repo, build=BuildConfig(clean_ext_dir="../victim", clean_ext_globs=["*.so"])
+    )
     monkeypatch.setattr(build_cmd.run, "load_project_or_exit", lambda: project)
 
     build_cmd.clean(ext=True)

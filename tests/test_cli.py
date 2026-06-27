@@ -99,7 +99,7 @@ def test_docs_status_exits_2_when_docs_unconfigured(tmp_path):
 
 
 def test_compile_exits_2_when_no_compile_step(tmp_path):
-    _write_config(tmp_path)  # compile_cmd is empty
+    _write_config(tmp_path)  # no build config → project.build is None
     result = runner.invoke(app, ["--config", str(tmp_path), "compile"])
     # 0/2 contract: a command that exists but isn't configured exits 2.
     assert result.exit_code == 2
@@ -147,10 +147,17 @@ def test_test_category_is_config_driven(tmp_path, monkeypatch):
     assert captured["args"] == []  # "examples" consumed, not passed to pytest
     assert captured["markers"] == "examples"
 
-    # Project does NOT define "examples" → it is passed through as a pytest arg,
-    # and the default tier marker is used (no hardcoded examples/docs assumption).
+    # Project does NOT define "examples" → a bare unknown word is treated as a
+    # mistyped category and fails clean (exit 2), instead of being silently handed
+    # to pytest (which would emit a confusing "file or directory not found").
     proj_b = tmp_path / "b"
     _config_with_markers(proj_b, {"default": "not slow"})
-    assert runner.invoke(app, ["--config", str(proj_b), "test", "examples"]).exit_code == 0
-    assert captured["args"] == ["examples"]
+    result = runner.invoke(app, ["--config", str(proj_b), "test", "examples"])
+    assert result.exit_code == 2
+
+    # Genuine pytest passthrough (a flag / path / nodeid) still works and uses the
+    # default tier marker (no hardcoded examples/docs assumption).
+    captured.clear()
+    assert runner.invoke(app, ["--config", str(proj_b), "test", "-k", "examples"]).exit_code == 0
+    assert captured["args"] == ["-k", "examples"]
     assert captured["markers"] == "not slow"

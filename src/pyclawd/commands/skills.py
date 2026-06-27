@@ -5,7 +5,7 @@ pyclawd ships a small set of agent-facing Claude Code skills (the umbrella
 ``pyclawd-golden``, ``pyclawd-docs``, ``pyclawd-upgrade``) as packaged data under
 :mod:`pyclawd.skills`.
 They are thin wrappers over the real CLI — they tell an AI agent *what to run and
-when*. This module exposes them to projects:
+when*. This module is the thin Typer wrapper that exposes them to projects:
 
 - ``pyclawd skills list`` — show the bundled skills with their one-line
   descriptions (parsed from each ``SKILL.md`` frontmatter).
@@ -13,10 +13,11 @@ when*. This module exposes them to projects:
   directory into a target (default ``~/.claude/skills/`` — **user scope**, since the
   skills are generic), so your agent picks them up across every project.
 
-Everything is discovered through :func:`importlib.resources.files`, so it works
-identically from a source checkout or an installed wheel — no ``__file__`` path
-hacks. The reusable :func:`install_skills` helper is also called by
-``pyclawd new`` to make new/adopted projects agent-ready automatically.
+The generic, project-agnostic install/drift engine lives in
+:mod:`pyclawd.skills_install` (so core modules like :mod:`pyclawd.doctor` can use it
+without importing the command layer). This module re-exports the helpers it builds
+on — :func:`install_skills` is also called by ``pyclawd new`` to make new/adopted
+projects agent-ready automatically.
 
 Exit-code contract (deterministic, agent-native):
 
@@ -26,194 +27,35 @@ Exit-code contract (deterministic, agent-native):
 
 from __future__ import annotations
 
-import os
-import shutil
-from importlib.resources import as_file, files
 from pathlib import Path
 
 import typer
 
-#: Directory-name prefix that marks a bundled skill (``pyclawd-doctor`` etc.).
-SKILL_PREFIX = "pyclawd-"
+from ..skills_install import (
+    SKILL_PREFIX,
+    bundled_skill_names,
+    drifted_installed_skills,
+    install_skills,
+    orphaned_installed_skills,
+    prune_installed_skills,
+    skill_description,
+    user_skills_dir,
+)
 
-
-def user_skills_dir() -> Path:
-    """User-scope skills directory (``~/.claude/skills``) — the default install target.
-
-    The bundled pyclawd skills are **generic** (nothing project-specific), so they
-    belong in user scope — installed once and shared across every repo — rather than
-    vendored into each project's ``.claude/skills/`` (and committed by accident).
-    """
-    return Path.home() / ".claude" / "skills"
-
-
-# --------------------------------------------------------------------------- #
-# Discovery + frontmatter parsing.
-# --------------------------------------------------------------------------- #
-
-
-def _skills_pkg():
-    """Return the packaged ``pyclawd.skills`` directory as an importlib Traversable."""
-    return files("pyclawd.skills")
-
-
-def _parse_frontmatter(text: str) -> dict[str, str]:
-    """Parse the leading ``--- ... ---`` YAML frontmatter into a flat dict.
-
-    Only simple top-level ``key: value`` lines are read (which is all the skills
-    use); anything else is ignored. Returns an empty dict if there is no
-    frontmatter block.
-    """
-    lines = text.splitlines()
-    if not lines or lines[0].strip() != "---":
-        return {}
-    fields: dict[str, str] = {}
-    for line in lines[1:]:
-        if line.strip() == "---":
-            break
-        if ":" in line and not line.startswith((" ", "\t")):
-            key, _, value = line.partition(":")
-            fields[key.strip()] = value.strip()
-    return fields
-
-
-def _is_bundled_skill(name: str) -> bool:
-    """True for the umbrella ``pyclawd`` skill or any ``pyclawd-*`` skill directory."""
-    return name == "pyclawd" or name.startswith(SKILL_PREFIX)
-
-
-def bundled_skill_names() -> list[str]:
-    """Return the sorted names of the bundled skills.
-
-    A skill is a sub-directory of :mod:`pyclawd.skills` that contains a ``SKILL.md``
-    and is either the umbrella ``pyclawd`` skill or starts with :data:`SKILL_PREFIX`.
-    """
-    root = _skills_pkg()
-    names = [
-        entry.name
-        for entry in root.iterdir()
-        if _is_bundled_skill(entry.name) and entry.is_dir() and (entry / "SKILL.md").is_file()
-    ]
-    return sorted(names)
-
-
-def skill_description(name: str) -> str:
-    """Return the one-line ``description`` from a bundled skill's frontmatter."""
-    text = (_skills_pkg() / name / "SKILL.md").read_text(encoding="utf-8")
-    return _parse_frontmatter(text).get("description", "")
-
-
-# --------------------------------------------------------------------------- #
-# Install (reused by ``pyclawd new``).
-# --------------------------------------------------------------------------- #
-
-
-def _trees_differ(src: Path, dest: Path) -> bool:
-    """Return True if the file trees at *src* and *dest* differ in names or content.
-
-    Used to detect a **drifted** installed skill — one copied from an older pyclawd
-    whose bundled content has since changed — so it can be auto-refreshed.
-
-    Args:
-        src: The bundled skill directory.
-        dest: The installed skill directory to compare against.
-
-    Returns:
-        True when the set of files differs or any file's bytes differ.
-    """
-    src_files = {p.relative_to(src) for p in src.rglob("*") if p.is_file()}
-    dest_files = {p.relative_to(dest) for p in dest.rglob("*") if p.is_file()}
-    if src_files != dest_files:
-        return True
-    return any((src / rel).read_bytes() != (dest / rel).read_bytes() for rel in src_files)
-
-
-def install_skills(
-    target: Path | None = None,
-    *,
-    symlink: bool = False,
-    force: bool = False,
-) -> tuple[list[str], list[str], list[str]]:
-    """Install the bundled skills into *target*, returning ``(installed, refreshed, skipped)``.
-
-    Each bundled skill directory is copied (default) or symlinked into *target*
-    (created if missing). A destination that does not yet exist is **installed**. An
-    existing destination that has **drifted** from the bundled content (e.g. it was
-    copied from an older pyclawd) is **refreshed** — re-copied in place — so an
-    upgrade propagates without ``--force``; pass *force* to refresh even identical
-    ones. A destination already identical to the bundled skill is **skipped**, as is
-    a symlinked one (a symlink always tracks the source).
-
-    Args:
-        target: Destination directory. Defaults to user scope
-            (:func:`user_skills_dir`, ``~/.claude/skills``) when ``None``.
-        symlink: Symlink each skill dir instead of copying it. Defaults to ``False``.
-        force: Refresh an existing destination even when it has not drifted.
-            Defaults to ``False``.
-
-    Returns:
-        ``(installed, refreshed, skipped)`` skill names.
-    """
-    if target is None:
-        target = user_skills_dir()
-    target.mkdir(parents=True, exist_ok=True)
-    installed: list[str] = []
-    refreshed: list[str] = []
-    skipped: list[str] = []
-
-    # ``as_file`` yields a concrete filesystem path for the packaged dir (a no-op
-    # for a normal installed/editable layout; only zipped resources are extracted).
-    with as_file(_skills_pkg()) as src_root:
-        for name in bundled_skill_names():
-            dest = target / name
-            src = src_root / name
-            exists = dest.exists() or dest.is_symlink()
-
-            # A symlink always reflects the source; an identical copy is current.
-            current = dest.is_symlink() or (dest.exists() and not _trees_differ(src, dest))
-            if exists and not force and current:
-                skipped.append(name)
-                continue
-
-            if dest.is_symlink() or dest.is_file():
-                dest.unlink()
-            elif dest.is_dir():
-                shutil.rmtree(dest)
-
-            if symlink:
-                os.symlink(src.resolve(), dest, target_is_directory=True)
-            else:
-                shutil.copytree(src, dest)
-            (refreshed if exists else installed).append(name)
-
-    return installed, refreshed, skipped
-
-
-def drifted_installed_skills(target: Path | None = None) -> list[str]:
-    """Return installed skills whose content has drifted from the bundled version.
-
-    Only considers skills that are actually **installed** at *target* (a missing
-    skill is treated as an opt-out, not drift) and **copied** (a symlink always
-    tracks the source, so it can never drift). Used by ``pyclawd doctor`` to WARN
-    when a user-scope skill is stale relative to the running pyclawd.
-
-    Args:
-        target: Directory to inspect. Defaults to user scope (:func:`user_skills_dir`).
-
-    Returns:
-        The sorted names of installed-but-drifted skills.
-    """
-    if target is None:
-        target = user_skills_dir()
-    drifted: list[str] = []
-    with as_file(_skills_pkg()) as src_root:
-        for name in bundled_skill_names():
-            dest = target / name
-            if not dest.exists() or dest.is_symlink():
-                continue
-            if _trees_differ(src_root / name, dest):
-                drifted.append(name)
-    return sorted(drifted)
+__all__ = [
+    "SKILL_PREFIX",
+    "bundled_skill_names",
+    "drifted_installed_skills",
+    "install",
+    "install_skills",
+    "list_",
+    "orphaned_installed_skills",
+    "prune",
+    "prune_installed_skills",
+    "register",
+    "skill_description",
+    "user_skills_dir",
+]
 
 
 def _resolve_target(target: str | None) -> Path:
@@ -260,8 +102,19 @@ def install(
     force: bool = typer.Option(
         False, "--force", help="Overwrite an existing destination instead of skipping it."
     ),
+    prune: bool = typer.Option(
+        False,
+        "--prune",
+        help="After installing, also remove orphaned skills dropped from this bundle.",
+    ),
 ) -> None:
-    """Install the bundled skills into a project's ``.claude/skills/`` directory."""
+    """Install the bundled skills into the user-scope ``~/.claude/skills/`` directory.
+
+    Defaults to user scope (not per-project) because the skills are generic — shared
+    across every pyclawd project and not committed into any one repo. Pass ``--target``
+    to install elsewhere. Pass ``--prune`` to also remove orphaned skills left behind
+    by a previous pyclawd (those no longer in this bundle).
+    """
     dest = _resolve_target(target)
     installed, refreshed, skipped = install_skills(dest, symlink=symlink, force=force)
 
@@ -273,20 +126,72 @@ def install(
     for name in skipped:
         typer.secho(f"  · {name} (already current — pass --force to re-copy)", fg="bright_black")
 
+    pruned: list[str] = []
+    if prune:
+        pruned = prune_installed_skills(dest)
+        for name in pruned:
+            typer.secho(f"  🗑 pruned {name} (orphan — not in this bundle)", fg="yellow")
+
     if not installed and not refreshed and not skipped:
         typer.secho("no bundled skills found to install", fg="red", err=True)
         raise typer.Exit(1)
     summary = f"{len(installed)} installed, {len(refreshed)} refreshed, {len(skipped)} skipped"
+    if prune:
+        summary += f", {len(pruned)} pruned"
     typer.secho(f"\n{summary} → {dest}", fg="green" if installed or refreshed else "yellow")
     raise typer.Exit(0)
 
 
+def prune(
+    target: str = typer.Option(
+        None,
+        "--target",
+        metavar="DIR",
+        help="Directory to prune (default: ~/.claude/skills — user scope).",
+    ),
+    dry_run: bool = typer.Option(
+        False, "--dry-run", help="List the orphans that would be removed without deleting them."
+    ),
+) -> None:
+    """Remove orphaned pyclawd skills left behind when a skill is dropped from the bundle.
+
+    An orphan is a ``pyclawd``/``pyclawd-*`` skill installed in the target whose name
+    is no longer in the current bundle. Only such stale copies of *our own* skills are
+    touched — a user's own skills are never removed. ``--dry-run`` reports without
+    deleting.
+    """
+    dest = _resolve_target(target)
+
+    if dry_run:
+        orphans = orphaned_installed_skills(dest)
+        if not orphans:
+            typer.secho(f"no orphaned skills in {dest}", fg="green")
+            raise typer.Exit(0)
+        typer.secho("Would prune:", bold=True)
+        for name in orphans:
+            typer.secho(f"  🗑 {name}", fg="yellow")
+        typer.secho(
+            f"\n{len(orphans)} orphan(s) in {dest} (dry run — nothing removed)", fg="yellow"
+        )
+        raise typer.Exit(0)
+
+    pruned = prune_installed_skills(dest)
+    if not pruned:
+        typer.secho(f"no orphaned skills to prune in {dest}", fg="green")
+        raise typer.Exit(0)
+    for name in pruned:
+        typer.secho(f"  🗑 pruned {name}", fg="yellow")
+    typer.secho(f"\n{len(pruned)} pruned → {dest}", fg="green")
+    raise typer.Exit(0)
+
+
 def register(app: typer.Typer) -> None:
-    """Attach the ``skills`` command group (``list``, ``install``) to *app*."""
+    """Attach the ``skills`` command group (``list``, ``install``, ``prune``) to *app*."""
     group = typer.Typer(
         no_args_is_help=True,
-        help="List and install the bundled pyclawd agent skills.",
+        help="List, install, and prune the bundled pyclawd agent skills.",
     )
     group.command(name="list")(list_)
     group.command()(install)
+    group.command()(prune)
     app.add_typer(group, name="skills")

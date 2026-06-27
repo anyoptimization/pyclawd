@@ -212,6 +212,6 @@ they still run.
 | Need | Reference |
 |---|---|
 | Prove behavior unchanged (the oracle) | `pyclawd-golden` skill · `examples/golden_demo/` |
-| Lint / format / typecheck / `check` gate | `pyclawd-quality` skill |
-| Tiered tests, the fix-loop | `pyclawd-tests` skill |
-| Mental model + full doctrine | `pyclawd` (umbrella) · `AGENTS.md` |
+| Lint / format / typecheck / `check` gate | the `pyclawd` skill's `references/quality.md` |
+| Tiered tests, the fix-loop | the `pyclawd` skill's `references/tests.md` |
+| Mental model + full doctrine | `pyclawd` (router) · `AGENTS.md` |

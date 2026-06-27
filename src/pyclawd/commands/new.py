@@ -234,6 +234,8 @@ def _render_config(
     tests_dir: str,
     docs: bool,
     compile_step: bool,
+    src_dir: str = "src",
+    root_markers: list[str] | None = None,
 ) -> str:
     """Build the source text of a ``.pyclawd/config.py`` for a project.
 
@@ -249,13 +251,23 @@ def _render_config(
         tests_dir: Root-relative tests directory (e.g. ``"tests/"``).
         docs: Whether to include a :class:`~pyclawd.DocsConfig` block.
         compile_step: Whether to include a build/compile step.
+        src_dir: Code/source root pyclawd lists (``"src"`` for a src layout, or
+            the package dir name for a flat/legacy layout). Defaults to ``"src"``.
+        root_markers: Filenames that mark the repo root. Defaults to
+            ``["pyproject.toml"]`` (the new-project / modern layout).
 
     Returns:
         The full text of the config module.
     """
+    if root_markers is None:
+        root_markers = ["pyproject.toml"]
+    markers_text = ", ".join(f'"{m}"' for m in root_markers)
+
     imports = ["DoctorConfig", "Project", "QualityConfig", "TestConfig"]
     if docs:
         imports.append("DocsConfig")
+    if compile_step:
+        imports.append("BuildConfig")
     imports_line = ", ".join(sorted(imports))
 
     conda_repr = "None" if not conda_env else repr(conda_env)
@@ -263,8 +275,10 @@ def _render_config(
     build_block = ""
     if compile_step:
         build_block = (
-            '    compile_cmd=["setup.py", "build_ext", "--inplace"],\n'
-            '    clean_targets=["build", "dist"],\n'
+            "    build=BuildConfig(\n"
+            '        compile_cmd=["setup.py", "build_ext", "--inplace"],\n'
+            '        clean_targets=["build", "dist"],\n'
+            "    ),\n"
         )
 
     docs_block = ""
@@ -283,12 +297,12 @@ def _render_config(
         "project = Project(\n"
         f"    name={name!r},\n"
         f"    conda_env={conda_repr},\n"
-        '    root_markers=["pyproject.toml"],\n'
+        f"    root_markers=[{markers_text}],\n"
         "    # The pyclawd this config was built on. `pyclawd doctor` WARNs if the\n"
         "    # running pyclawd has drifted to a different minor (migration may be needed).\n"
         f"    pyclawd_version={__version__!r},\n"
         "    # Default directory `pyclawd ls` lists (the code/source root).\n"
-        '    src_dir="src",\n'
+        f'    src_dir="{src_dir}",\n'
         f"{build_block}"
         "    quality=QualityConfig(\n"
         '        lint_cmd=["ruff", "check"],\n'
@@ -298,7 +312,7 @@ def _render_config(
         # target-less: mypy reads files=["src"] from pyproject.toml;
         # pyclawd appends the path arg for single-file mode (pyclawd check <file>).
         '        typecheck_cmd=["mypy"],\n'
-        '        check_sequence=["format-check", "lint", "typecheck", "test"],\n'
+        '        check_sequence=["format-check", "lint", "typecheck", "descriptions", "test"],\n'
         "    ),\n"
         "    test=TestConfig(\n"
         f"        tests_dir={tests_dir!r},\n"
@@ -319,6 +333,257 @@ def _render_config(
         "    ),\n"
         ")\n"
     )
+
+
+# --------------------------------------------------------------------------- #
+# Repo introspection — detect layout / markers / Phase-0 readiness (ADOPT).
+# --------------------------------------------------------------------------- #
+
+# Top-level directories that are never the package dir in a flat layout.
+_NON_PKG_DIRS = frozenset(
+    {"tests", "docs", "build", "dist", "examples", "scripts", ".git", ".github", ".pyclawd"}
+)
+
+
+def _detect_package(root: Path, hint: str | None = None) -> tuple[str, str]:
+    """Detect a repo's source layout and package directory.
+
+    Recognizes a modern ``src/`` layout, a flat/legacy layout (package dir at the
+    repo root), and falls back to the historical hardcoded default when neither is
+    found. Never raises on an odd or unreadable tree — it returns the fallback.
+
+    Args:
+        root: Repository root to inspect.
+        hint: Preferred package name (e.g. from ``--pkg``) used to disambiguate
+            when several candidate package dirs exist.
+
+    Returns:
+        A ``(src_dir, pkg)`` pair: for a src layout ``("src", <pkg>)``; for a flat
+        layout ``(<pkg>, <pkg>)``; fallback ``("src", hint or "src")``.
+    """
+    try:
+        src = root / "src"
+        if src.is_dir():
+            pkgs = sorted(
+                p.name for p in src.iterdir() if p.is_dir() and (p / "__init__.py").is_file()
+            )
+            if pkgs:
+                return ("src", hint if hint in pkgs else pkgs[0])
+        candidates = sorted(
+            p.name
+            for p in root.iterdir()
+            if p.is_dir()
+            and not p.name.startswith(".")
+            and p.name not in _NON_PKG_DIRS
+            and (p / "__init__.py").is_file()
+        )
+        if candidates:
+            pick = hint if hint in candidates else candidates[0]
+            return (pick, pick)
+    except OSError:
+        pass
+    return ("src", hint or "src")
+
+
+def _infer_root_markers(root: Path, src_dir: str, pkg: str) -> list[str]:
+    """Infer the files that mark *root* as the repo root.
+
+    Includes whichever of ``pyproject.toml`` / ``setup.py`` / ``setup.cfg`` exist,
+    plus the package ``__init__.py`` (so even a marker-file-less legacy repo still
+    resolves a root). Never raises; always returns at least one marker.
+
+    Args:
+        root: Repository root to inspect.
+        src_dir: Detected source root (``"src"`` or the flat package dir).
+        pkg: Detected package import name.
+
+    Returns:
+        A non-empty list of root-marker paths (falls back to ``["pyproject.toml"]``).
+    """
+    markers: list[str] = []
+    for fname in ("pyproject.toml", "setup.py", "setup.cfg"):
+        try:
+            if (root / fname).is_file():
+                markers.append(fname)
+        except OSError:
+            pass
+    init_rel = f"{pkg}/__init__.py" if src_dir == pkg else f"{src_dir}/{pkg}/__init__.py"
+    try:
+        if (root / init_rel).is_file():
+            markers.append(init_rel)
+    except OSError:
+        pass
+    return markers or ["pyproject.toml"]
+
+
+def _phase0_status(root: Path) -> dict[str, bool]:
+    """Probe whether *root* has the Phase-0 tool config the quality gate needs.
+
+    Simple text checks against ``pyproject.toml`` — enough to tell the user what is
+    missing for ``pyclawd check`` to run. Never raises on a missing/unreadable file.
+
+    Args:
+        root: Repository root to inspect.
+
+    Returns:
+        A dict with booleans ``pyproject`` / ``ruff`` / ``mypy`` / ``pydocstyle``
+        and an aggregate ``ready``.
+    """
+    pp = root / "pyproject.toml"
+    exists = pp.is_file()
+    text = ""
+    if exists:
+        try:
+            text = pp.read_text(encoding="utf-8")
+        except OSError:
+            text = ""
+    ruff = "[tool.ruff]" in text
+    mypy = "[tool.mypy]" in text
+    pydocstyle = "convention" in text and "pydocstyle" in text
+    return {
+        "pyproject": exists,
+        "ruff": ruff,
+        "mypy": mypy,
+        "pydocstyle": pydocstyle,
+        "ready": exists and ruff and mypy and pydocstyle,
+    }
+
+
+def _print_phase0_report(
+    root: Path, *, src_dir: str, pkg: str, root_markers: list[str], tests_dir: str
+) -> None:
+    """Print what was detected and what is missing for the gate to run (ADOPT)."""
+    typer.secho("\nPhase-0 readiness:", bold=True)
+    layout = "src" if src_dir == "src" else "flat"
+    typer.echo(f"  detected layout: {layout}  (src_dir={src_dir!r}, pkg={pkg!r})")
+    typer.echo(f"  root_markers: {root_markers}")
+    typer.echo(f"  tests dir: {tests_dir}")
+
+    status = _phase0_status(root)
+    missing: list[str] = []
+    if not status["pyproject"]:
+        missing.append("no pyproject.toml")
+    else:
+        if not status["ruff"]:
+            missing.append("pyproject.toml present but no [tool.ruff]")
+        if not status["mypy"]:
+            missing.append("no [tool.mypy]")
+        if not status["pydocstyle"]:
+            missing.append("no pydocstyle convention")
+    if missing:
+        typer.secho("  ✗ quality gate not yet runnable:", fg="yellow")
+        for item in missing:
+            typer.secho(f"      · {item}", fg="yellow")
+        typer.echo("  → curate Phase 0 with the `pyclawd-adopt` skill, or run")
+        typer.echo("    `pyclawd new --scaffold-pyproject` to drop in a starter pyproject.toml.")
+    else:
+        typer.secho(
+            "  ✓ pyproject has [tool.ruff] + [tool.mypy] + pydocstyle — gate is runnable",
+            fg="green",
+        )
+
+
+# --------------------------------------------------------------------------- #
+# Starter pyproject.toml (opt-in --scaffold-pyproject) for adopting legacy repos.
+# --------------------------------------------------------------------------- #
+
+_RUFF_SECTION = (
+    "[tool.ruff]\n"
+    "line-length = 100\n"
+    "\n"
+    "[tool.ruff.lint]\n"
+    "# One-line-per-file docstring doctrine: enable pydocstyle (D) but drop the\n"
+    "# per-symbol mandates so only the module docstring is required, not every\n"
+    "# class/method/function. Curate this select set per the pyclawd-adopt skill.\n"
+    'select = ["E", "F", "I", "D"]\n'
+    'ignore = ["D101", "D102", "D103", "D105", "D107"]\n'
+    "\n"
+    "[tool.ruff.lint.pydocstyle]\n"
+    "# Starter default — pick the convention that matches the repo's docstrings.\n"
+    'convention = "google"\n'
+)
+
+_PYTEST_SECTION = (
+    "[tool.pytest.ini_options]\n"
+    "markers = [\n"
+    '    "slow: long-running tests (excluded from the default tier)",\n'
+    '    "integration: tests needing live services",\n'
+    '    "golden: behavior-oracle snapshots (run via `pyclawd golden`)",\n'
+    "]\n"
+)
+
+
+def _starter_sections(src_dir: str) -> list[tuple[str, str]]:
+    """Return the ``(section-header, text)`` starter tool sections for a repo.
+
+    Args:
+        src_dir: Detected source root used as the mypy ``files`` target.
+
+    Returns:
+        A list of ``(header, body)`` pairs (ruff, mypy, pytest) in write order.
+    """
+    mypy_section = f'[tool.mypy]\nfiles = ["{src_dir}"]\nexplicit_package_bases = true\n'
+    return [
+        ("[tool.ruff]", _RUFF_SECTION),
+        ("[tool.mypy]", mypy_section),
+        ("[tool.pytest.ini_options]", _PYTEST_SECTION),
+    ]
+
+
+def _scaffold_pyproject(root: Path, *, src_dir: str) -> tuple[list[str], list[str]]:
+    """Write/extend ``pyproject.toml`` with starter tool sections (never clobbering).
+
+    Creates the file if absent; if present, appends only the ``[tool.*]`` sections
+    not already declared (an existing ``[tool.ruff]`` etc. is left untouched).
+
+    Args:
+        root: Repository root.
+        src_dir: Detected source root (the mypy target).
+
+    Returns:
+        A ``(added, skipped)`` pair of the section headers written vs. preserved.
+    """
+    pp = root / "pyproject.toml"
+    sections = _starter_sections(src_dir)
+    added: list[str] = []
+    skipped: list[str] = []
+
+    if not pp.is_file():
+        header = (
+            "# Starter pyproject.toml written by `pyclawd new --scaffold-pyproject`.\n"
+            "# This is a STARTER config — curate it per the pyclawd-adopt skill.\n\n"
+        )
+        _write(pp, header + "\n".join(text for _, text in sections))
+        return [key for key, _ in sections], skipped
+
+    existing = pp.read_text(encoding="utf-8")
+    append: list[str] = []
+    for key, text in sections:
+        if key in existing:
+            skipped.append(key)
+        else:
+            append.append(text)
+            added.append(key)
+    if append:
+        if not existing.endswith("\n"):
+            existing += "\n"
+        pp.write_text(existing + "\n" + "\n".join(append), encoding="utf-8")
+    return added, skipped
+
+
+def _print_scaffold_pyproject(root: Path, *, src_dir: str) -> None:
+    """Run :func:`_scaffold_pyproject` and report added vs. skipped sections."""
+    added, skipped = _scaffold_pyproject(root, src_dir=src_dir)
+    if added:
+        typer.secho("✓ scaffolded pyproject.toml starter sections: " + ", ".join(added), fg="green")
+        typer.secho(
+            "  starter config — curate per the `pyclawd-adopt` skill before relying on it.",
+            fg="bright_black",
+        )
+    if skipped:
+        typer.secho(
+            "  · left existing sections untouched: " + ", ".join(skipped), fg="bright_black"
+        )
 
 
 # --------------------------------------------------------------------------- #
@@ -357,6 +622,7 @@ def _adopt(
     no_agent: bool = False,
     no_skills: bool = False,
     dry_run: bool = False,
+    scaffold_pyproject: bool = False,
 ) -> None:
     """Write a ``./.pyclawd/config.py`` for the current repository.
 
@@ -393,6 +659,11 @@ def _adopt(
         False if no_skills else None, "Install pyclawd skills (user scope)?", True, interactive
     )
 
+    # Detect the real layout so the config is correct on arrival for a flat/legacy
+    # repo (package dir at root, setup.py, no pyproject) — not just src/ projects.
+    src_dir, detected_pkg = _detect_package(cwd, hint=pkg_v)
+    root_markers = _infer_root_markers(cwd, src_dir, detected_pkg)
+
     _print_plan(
         target,
         [
@@ -401,10 +672,14 @@ def _adopt(
             ("build/compile step", compile_v),
             ("AGENTS.md + CLAUDE.md", agent_v),
             ("pyclawd skills → ~/.claude/skills", skills_v),
+            ("starter pyproject.toml (--scaffold-pyproject)", scaffold_pyproject),
         ],
         dry_run=dry_run,
     )
     if dry_run:
+        _print_phase0_report(
+            cwd, src_dir=src_dir, pkg=detected_pkg, root_markers=root_markers, tests_dir=tests_v
+        )
         return
 
     content = _render_config(
@@ -414,6 +689,8 @@ def _adopt(
         tests_dir=tests_v,
         docs=docs_v,
         compile_step=compile_v,
+        src_dir=src_dir,
+        root_markers=root_markers,
     )
     _write(target, content)
     typer.secho(f"✓ wrote {target.relative_to(cwd)}", fg="green")
@@ -426,10 +703,16 @@ def _adopt(
     }
     if docs_v:
         _install_docs(cwd, ctx)
+    if scaffold_pyproject:
+        _print_scaffold_pyproject(cwd, src_dir=src_dir)
     if agent_v:
         _write_agent_guide(cwd, ctx)
     if skills_v:
         _install_project_skills()
+
+    _print_phase0_report(
+        cwd, src_dir=src_dir, pkg=detected_pkg, root_markers=root_markers, tests_dir=tests_v
+    )
 
     typer.echo("\nNext steps:")
     typer.echo("  pyclawd root        # confirm pyclawd now resolves this repo")
@@ -584,6 +867,12 @@ def new(
     dry_run: bool = typer.Option(
         False, "--dry-run", help="Print the component plan and exit without writing anything."
     ),
+    scaffold_pyproject: bool = typer.Option(
+        False,
+        "--scaffold-pyproject",
+        help="ADOPT: drop in a starter pyproject.toml (ruff/mypy/pytest) without "
+        "clobbering existing [tool.*] sections — makes the gate runnable on a legacy repo.",
+    ),
 ) -> None:
     """Scaffold a new project (``pyclawd new <name>``) or adopt the current repo.
 
@@ -604,6 +893,7 @@ def new(
             no_agent=no_agent,
             no_skills=no_skills,
             dry_run=dry_run,
+            scaffold_pyproject=scaffold_pyproject,
         )
         return
 

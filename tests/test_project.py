@@ -20,6 +20,7 @@ from pathlib import Path
 import pytest
 
 from pyclawd import (
+    BuildConfig,
     DocsConfig,
     DoctorConfig,
     Project,
@@ -40,11 +41,13 @@ def make_project(name: str = "demo") -> Project:
         name=name,
         conda_env=None,
         root_markers=["pyproject.toml"],
-        compile_cmd=["setup.py", "build_ext", "--inplace"],
-        dist_cmd=["setup.py", "sdist"],
-        clean_targets=["build", "dist"],
-        clean_ext_dir="src/_compiled",
-        clean_ext_globs=["*.so"],
+        build=BuildConfig(
+            compile_cmd=["setup.py", "build_ext", "--inplace"],
+            dist_cmd=["setup.py", "sdist"],
+            clean_targets=["build", "dist"],
+            clean_ext_dir="src/_compiled",
+            clean_ext_globs=["*.so"],
+        ),
         docs=DocsConfig(
             runner=["uvx", "--from", "./docs", "mydocs"],
             source_dir="docs/source",
@@ -76,18 +79,20 @@ def write_config(dir_path: Path, *, name: str = "demo", body: str | None = None)
         body = textwrap.dedent(
             f"""
             from pyclawd import (
-                DocsConfig, DoctorConfig, Project, TestConfig,
+                BuildConfig, DocsConfig, DoctorConfig, Project, TestConfig,
             )
 
             project = Project(
                 name={name!r},
                 conda_env=None,
                 root_markers=["pyproject.toml"],
-                compile_cmd=["setup.py", "build_ext", "--inplace"],
-                dist_cmd=["setup.py", "sdist"],
-                clean_targets=["build", "dist"],
-                clean_ext_dir="src/_compiled",
-                clean_ext_globs=["*.so"],
+                build=BuildConfig(
+                    compile_cmd=["setup.py", "build_ext", "--inplace"],
+                    dist_cmd=["setup.py", "sdist"],
+                    clean_targets=["build", "dist"],
+                    clean_ext_dir="src/_compiled",
+                    clean_ext_globs=["*.so"],
+                ),
                 docs=DocsConfig(
                     runner=["uvx", "--from", "./docs", "mydocs"],
                     source_dir="docs/source",

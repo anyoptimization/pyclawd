@@ -11,7 +11,7 @@ from pathlib import Path
 
 import pytest
 
-from pyclawd import DocsConfig, Project, QualityConfig, discovery, load_project
+from pyclawd import BuildConfig, DocsConfig, Project, QualityConfig, discovery, load_project
 
 REFERENCE = Path(__file__).resolve().parent.parent / "examples" / "config.reference.py"
 
@@ -33,8 +33,9 @@ def test_reference_example_loads_as_a_valid_project():
     # It exercises the full surface — the powerful, easy-to-miss knobs:
     assert isinstance(project.docs, DocsConfig)
     assert isinstance(project.quality, QualityConfig)
-    assert project.compile_cmd  # has a build step
-    assert project.clean_ext_globs  # has a --ext clean
+    assert isinstance(project.build, BuildConfig)
+    assert project.build.compile_cmd  # has a build step
+    assert project.build.clean_ext_globs  # has a --ext clean
     assert callable(project.extra_doctor_checks)  # custom doctor hook
     # 5-tier markers incl. the integration suites.
     assert set(project.test.markers) == {"default", "fast", "all", "examples", "docs"}

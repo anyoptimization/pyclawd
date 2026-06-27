@@ -58,14 +58,22 @@ def _golden_or_exit(project: Project) -> GoldenConfig:
     return project.golden
 
 
-def _golden_opts(golden: GoldenConfig) -> list[str]:
+def _golden_opts(project: Project, golden: GoldenConfig) -> list[str]:
     """Translate :class:`GoldenConfig` into the plugin's pytest ``-o`` overrides.
 
     Feeds the auto-registered plugin the project's baseline dir / marker /
     tolerances, so a pyclawd project drives golden from ``.pyclawd/config.py`` while
     the plugin itself stays config-via-pytest-ini for bare-pytest projects.
 
+    ``golden_dir`` is passed as an **absolute** path resolved against the repo
+    root, so the plugin records/reads baselines in exactly the directory the CLI's
+    ``status`` / ``prune`` read (``project.path(baseline_dir)``). The plugin
+    otherwise resolves a *relative* ``golden_dir`` against pytest's rootdir, which
+    diverges from the repo root whenever pytest picks a nested rootdir (e.g. a
+    ``tests/pytest.ini``) — the doubled ``tests/tests/golden`` the dogfood exposed.
+
     Args:
+        project: The loaded project (provides the repo root for path resolution).
         golden: The golden configuration.
 
     Returns:
@@ -73,7 +81,7 @@ def _golden_opts(golden: GoldenConfig) -> list[str]:
     """
     return [
         "-o",
-        f"golden_dir={golden.baseline_dir}",
+        f"golden_dir={project.path(golden.baseline_dir)}",
         "-o",
         f"golden_marker={golden.marker}",
         "-o",
@@ -104,7 +112,7 @@ def _pytest_cmd(project: Project, golden: GoldenConfig) -> list[str]:
         "-m",
         "pytest",
         project.test.tests_dir,
-        *_golden_opts(golden),
+        *_golden_opts(project, golden),
         "-m",
         golden.marker,
     ]
@@ -167,7 +175,7 @@ def _collect_nodeids(project: Project, golden: GoldenConfig) -> set[str] | None:
         "-m",
         "pytest",
         project.test.tests_dir,
-        *_golden_opts(golden),
+        *_golden_opts(project, golden),
         "--collect-only",
         "-q",
         "-m",

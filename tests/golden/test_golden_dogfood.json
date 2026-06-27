@@ -1,0 +1,14 @@
+{
+  "test_scaffold_config_render": {
+    "hash": "sha256:92d82ceafa0d066db0935193741fa3fbf43737e26960c1792241e9fab6e2a779",
+    "value": "\"\"\"acme-tool's pyclawd config \u2014 drives `pyclawd test/lint/typecheck/...` for this repo.\n\"\"\"\n\nfrom pyclawd import DoctorConfig, Project, QualityConfig, TestConfig\n\nproject = Project(\n    name='acme-tool',\n    conda_env=None,\n    root_markers=[\"pyproject.toml\"],\n    # The pyclawd this config was built on. `pyclawd doctor` WARNs if the\n    # running pyclawd has drifted to a different minor (migration may be needed).\n    pyclawd_version='0.1.0',\n    # Default directory `pyclawd ls` lists (the code/source root).\n    src_dir=\"src\",\n    quality=QualityConfig(\n        lint_cmd=[\"ruff\", \"check\"],\n        lint_fix_cmd=[\"ruff\", \"check\", \"--fix\"],\n        format_cmd=[\"ruff\", \"format\"],\n        format_check_cmd=[\"ruff\", \"format\", \"--check\", \"--quiet\"],\n        typecheck_cmd=[\"mypy\"],\n        check_sequence=[\"format-check\", \"lint\", \"typecheck\", \"descriptions\", \"test\"],\n    ),\n    test=TestConfig(\n        tests_dir='tests/',\n        classname_prefix=\"tests.\",\n        integration_files=[],\n        markers={\"fast\": \"not slow and not integration\", \"default\": \"not slow\", \"all\": \"\"},\n    ),\n    doctor=DoctorConfig(\n        core_deps=[],\n        dev_deps=[\"pytest\", \"pytest-xdist\", \"pytest-cov\"],\n        tool_files=[],\n        binaries=[\n            (\"ruff\", \"pip install ruff\"),\n            (\"mypy\", \"pip install mypy\"),\n        ],\n    ),\n)\n"
+  },
+  "test_tier_marker_mapping": {
+    "hash": "sha256:2feb42f5d3f3372de50bd61ac39231a31df3917ceb850cf1998176447a59fe14",
+    "value": {
+      "all": "not golden",
+      "default": "not slow and not golden",
+      "fast": "not slow and not integration and not golden"
+    }
+  }
+}

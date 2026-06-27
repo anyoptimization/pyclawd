@@ -1,5 +1,5 @@
 [build-system]
-requires = ["hatchling"]
+requires = ["hatchling>=1.27"]  # >=1.27 for PEP 639 license-expression support
 build-backend = "hatchling.build"
 
 [project]
@@ -11,12 +11,12 @@ description = "A project-generic, config-driven dev-task runner for Python proje
 authors = [{ name = "Julian Blank", email = "blankjul@outlook.com" }]
 readme = "README.md"
 license = "Apache-2.0"
+license-files = ["LICENSE*"]
 requires-python = ">=3.10"
 keywords = ["developer-tools", "task-runner", "cli", "testing", "documentation"]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
-    "License :: OSI Approved :: Apache Software License",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
@@ -61,6 +61,7 @@ path = "src/pyclawd/__init__.py"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/pyclawd"]
+include = ["src/pyclawd/py.typed"]  # PEP 561 — ship the typed marker (we're a typed lib)
 
 # Ship the CHANGELOG inside the wheel so `pyclawd changelog` works from any
 # pip-installed pyclawd (PyPI included) — the agent-driven upgrade flow reads it to
@@ -88,7 +89,7 @@ extend-exclude = ["docs"]
 # under ruff's unstable `preview`, so selecting them is a silent no-op (and emits a
 # warning). The Google docstring *convention* below + the `D` rules are the gate;
 # the no-types / Args-Returns style is upheld by review and the `pyclawd ls` map.
-select = ["E", "F", "I", "B", "UP", "SIM", "C4", "RUF", "PGH", "D"]
+select = ["E", "W", "F", "I", "B", "UP", "SIM", "C4", "RUF", "PGH", "D"]
 # `compile` and `format` shadow builtins by design — they are intentional
 # command names (`pyclawd compile`, `pyclawd format`).
 
@@ -109,13 +110,12 @@ extend-immutable-calls = ["typer.Option", "typer.Argument"]
 # Non-strict to start: wire up type-checking without drowning in noise.
 python_version = "3.10"
 files = ["src"]
-ignore_missing_imports = true
 warn_unused_configs = true
 check_untyped_defs = true
 # Needed for `pyclawd typecheck/check <file>` — prevents "Duplicate module"
 # errors when mypy resolves a single source file by path instead of by name.
 explicit_package_bases = true
-mypy_path = "."
+mypy_path = "src"
 
 # numpy is an optional dep used only via `Any` (lazy import in pyclawd.golden).
 # Don't follow into its stubs: with python_version pinned to 3.10, mypy rejects the
@@ -125,3 +125,10 @@ mypy_path = "."
 module = ["numpy", "numpy.*"]
 follow_imports = "skip"
 follow_imports_for_stubs = true
+
+# jupyter-cache ships no type stubs / py.typed; docs.py imports it lazily for the
+# `pyclawd docs failures` path. Scope the missing-import allowance to it (rather
+# than a global ignore_missing_imports) so every other unstubbed import still errors.
+[[tool.mypy.overrides]]
+module = ["jupyter_cache.*"]
+ignore_missing_imports = true

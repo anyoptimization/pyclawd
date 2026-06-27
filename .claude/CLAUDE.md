@@ -32,7 +32,7 @@ all of these and reports OK/WARN/FAIL.
 | `pyclawd test …` | **pytest** | `test fast` also wants **pytest-xdist** (`-n auto`) |
 | `pyclawd lint` / `format` | **ruff** | argv set in `QualityConfig` |
 | `pyclawd typecheck` | **mypy** | argv set in `QualityConfig` |
-| `pyclawd compile` / `dist` | the project's build backend | only if `compile_cmd` / `dist_cmd` are set |
+| `pyclawd compile` / `dist` | the project's build backend | only if `project.build` (a `BuildConfig`) sets `compile_cmd` / `dist_cmd`; `build=None` → exit 2 |
 | `pyclawd docs build/run/render/exec` | a **`./docs` runner** (sphinx + nbsphinx, via uvx or installed) | delegated to `DocsConfig.runner`; **`render` also needs the `pandoc` system binary** |
 | `pyclawd docs failures` / `timings` | a **jupyter-cache** backend at `cache_db`; `failures` imports `jupyter_cache` + `nbformat` **in this env** | see the backend note on `DocsConfig` |
 
@@ -79,7 +79,11 @@ toolchain is the dogfooded one: ruff + mypy + pytest, all configured in
 - **Commands degrade, never crash.** An unconfigured group (e.g. `docs`, `quality`)
   self-reports and exits `2`; an undefined test tier applies no `-m` filter. Keep
   that contract — prefer `dict.get(...)` / clean `typer.Exit` over raw `KeyError`s.
-- **Exit-code contract:** `0` ok · `2` not-configured · otherwise the tool's own code.
+- **Exit-code contract:** `0` ok · `2` = not-configured **or** a CLI usage error
+  (Typer's own convention) · otherwise the underlying tool's own code. Note that
+  `pyclawd docs` preflight uses distinct codes — `3` for a missing `pandoc` binary,
+  `1` for "no built docs yet" — so don't assume every nonzero from docs is the
+  runner's code.
 - **Keep the dogfood honest.** If you add a command or config field, update
   `.pyclawd/config.py`, `AGENTS.md`, `README.md`, and the scaffold templates so a
   freshly-`pyclawd new`-ed project still matches reality.

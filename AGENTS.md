@@ -89,7 +89,7 @@ walks up from cwd to find `.pyclawd/config.py`.
 
 Mark slow tests `@pytest.mark.slow`, tests needing live services
 `@pytest.mark.integration`. Unmarked tests run in every tier — never mark a test
-`fast`. The fix-loop and failure taxonomy live in the `pyclawd-tests` skill.
+`fast`. The fix-loop and failure taxonomy live in the `pyclawd` skill's `references/tests.md`.
 
 ## Behavior oracle (golden)
 
@@ -124,8 +124,10 @@ in one file:
   root.
 - The `Project` model groups config: `QualityConfig` (lint/format/typecheck/check
   argv), `TestConfig` (tests dir + tier markers), `DocsConfig` (docs toolchain, or
-  `None`), `DoctorConfig` (deps/binaries/tool-files to probe), `CoverageConfig`,
-  `DescriptionConfig`. Unset optional groups disable their commands cleanly.
+  `None`), `DoctorConfig` (deps/binaries/tool-files to probe), `BuildConfig`
+  (compile/dist/clean argv, via `project.build`, or `None`), `CoverageConfig`,
+  `DescriptionConfig`, and `GoldenConfig` (the behavior-oracle wrapper, or `None`).
+  Unset optional groups disable their commands cleanly.
 - To inspect a project's setup, read its `.pyclawd/config.py` — it is the single
   source of truth for env, paths, markers, and checks.
 
@@ -170,18 +172,33 @@ the convention when adopting an existing repo.
 
 ## How you know you're done
 
-- `pyclawd check` is green (format-check, lint, typecheck, and tests all ✓).
+- `pyclawd check` is green (format-check, lint, typecheck, descriptions, and tests
+  all ✓). The `descriptions` step is the enforced gate — it passes when every
+  `DescriptionConfig`-included file (default `.py`/`.pyx`) has a one-line
+  description.
 - `pyclawd doctor` exits 0 — no FAILs.
-- `pyclawd ls --missing` is empty — every file has a one-line description.
 - Behavior is verified by tests, not just by inspection.
+
+`pyclawd ls --missing` is the broader **exploratory** view: it lists *every* repo
+file lacking a one-liner, including templates and Markdown the `descriptions` gate
+deliberately ignores. It may legitimately be non-empty even when `pyclawd check` is
+green — the gate is `descriptions`, not `ls --missing`.
 
 ---
 
 **Going deeper.** This file is the contract. For the doctrine behind it, invoke the
-Claude Code skills: **`pyclawd`** (mental model + best practices) is the umbrella;
-**`pyclawd-tests`**, **`pyclawd-quality`**, **`pyclawd-doctor`**, **`pyclawd-docs`**,
-and **`pyclawd-golden`** are the focused deep-dives; **`pyclawd-upgrade`** migrates a
-project after pyclawd itself is updated (when `pyclawd version` shows config drift).
-They are generic (not specific to any one repo) and update centrally when pyclawd is
-upgraded — which is exactly why the deep doctrine lives there and is not duplicated
-into this file.
+Claude Code skills: **`pyclawd`** is the umbrella router — a lean overview plus
+on-demand reference docs (`references/mental-model.md`, `references/tests.md`,
+`references/quality.md`, `references/docs.md`, `references/packaging.md`) that carry
+the testing, quality, docs, and packaging doctrine. Four focused standalone skills
+sit alongside it: **`pyclawd-adopt`** (adopt pyclawd into an existing repo —
+red-to-green with zero behavior regression; `pyclawd new` adopt mode now detects the
+flat-vs-`src` layout, infers `root_markers`, and prints a Phase-0 readiness report of
+what is missing, with `--scaffold-pyproject` to drop a starter ruff/mypy/pytest config),
+**`pyclawd-golden`** (the behavior
+oracle), **`pyclawd-doctor`** (diagnose a broken env), and **`pyclawd-upgrade`**
+(migrate a project *after* a pyclawd version bump, when `pyclawd version` shows config
+drift — the upgrade counterpart to `pyclawd-adopt`'s first-time onboarding). They are
+generic (not
+specific to any one repo) and update centrally when pyclawd is upgraded — which is
+exactly why the deep doctrine lives there and is not duplicated into this file.

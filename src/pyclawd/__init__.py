@@ -4,9 +4,9 @@ pyclawd provides run/test/build/docs/doctor workflows driven by a per-project
 configuration file (``.pyclawd/config.py``). The public API exposes the
 configuration model and loader so adopting projects can describe themselves:
 
-- :class:`Project` and the nested :class:`DocsConfig`, :class:`TestConfig`,
-  :class:`DoctorConfig`, :class:`QualityConfig`, :class:`CoverageConfig`, and
-  :class:`DescriptionConfig` config groups.
+- :class:`Project` and the nested :class:`BuildConfig`, :class:`DocsConfig`,
+  :class:`TestConfig`, :class:`DoctorConfig`, :class:`QualityConfig`,
+  :class:`CoverageConfig`, and :class:`DescriptionConfig` config groups.
 - :func:`load_project` / :func:`find_config_file` to discover and load a project,
   :func:`set_config_override` to force a config path, and :class:`ConfigError`.
 - :class:`Check` and the :data:`OK` / :data:`WARN` / :data:`FAIL` status
@@ -23,6 +23,7 @@ from .project import (
     FAIL,
     OK,
     WARN,
+    BuildConfig,
     Check,
     CoverageConfig,
     DescriptionConfig,
@@ -40,6 +41,7 @@ __all__ = [
     "FAIL",
     "OK",
     "WARN",
+    "BuildConfig",
     "Check",
     "ConfigError",
     "CoverageConfig",

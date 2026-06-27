@@ -51,13 +51,16 @@ and the nested `*Config`s). That is what you are migrating.
    upgrade does not propagate them automatically):
    ```bash
    pyclawd skills install     # auto-refreshes drifted skills; identical ones skipped
+   pyclawd skills prune       # remove orphans — skills DROPPED from the new bundle
    ```
+   (`pyclawd skills install --prune` does both — refresh + prune — in one step.
+   `pyclawd doctor` also WARNs when orphaned skills linger in `~/.claude/skills`.)
 
 5. **Verify green.**
    ```bash
    pyclawd version            # config now ✓ matches
    pyclawd doctor             # no pyclawd-compat / skills WARN
-   pyclawd check              # format-check → lint → typecheck → test all ✓
+   pyclawd check              # format-check → lint → typecheck → descriptions → test all ✓
    ```
 
 ## Boundaries
@@ -75,3 +78,12 @@ and the nested `*Config`s). That is what you are migrating.
 - `pyclawd version` → `config built on <new> ✓ matches`
 - `pyclawd doctor` → no pyclawd-compat WARN, no stale-skills WARN
 - `pyclawd check` is green
+
+## Where to go next
+
+| Need | Where |
+|---|---|
+| Onboarding an existing repo for the **first** time (not an upgrade) | **pyclawd-adopt** |
+| Env looks broken after the upgrade | **pyclawd-doctor** |
+| Prove the upgrade didn't change behavior | **pyclawd-golden** |
+| Mental model + full doctrine | **pyclawd** (router) · `AGENTS.md` |

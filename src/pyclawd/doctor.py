@@ -27,6 +27,11 @@ from rich.table import Table
 
 from .discovery import ConfigError, load_project
 from .project import FAIL, OK, WARN, Check, Project
+from .skills_install import (
+    drifted_installed_skills,
+    orphaned_installed_skills,
+    user_skills_dir,
+)
 
 _MARK = {OK: "[green]✓[/green]", WARN: "[yellow]![/yellow]", FAIL: "[red]✗[/red]"}
 
@@ -116,8 +121,40 @@ def _check_conda_env(expected: str | None) -> Check:
 
 
 def _check_import(name: str, required: bool) -> Check:
+    """Report whether a configured dependency is present (FAIL/WARN otherwise).
+
+    A dependency may be listed by its **distribution** name (the PyPI package, e.g.
+    ``pytest-xdist``) or by its **import** name (e.g. ``rich``); these often differ
+    (``pytest-xdist`` imports as ``xdist``, ``pytest-cov`` as ``pytest_cov``). So we
+    detect presence two ways, in order:
+
+    1. ``importlib.metadata.version(name)`` — finds it by distribution name without
+       importing the module, and normalizes ``-``/``_``/case. This handles PyPI
+       names whose import name differs.
+    2. ``importlib.import_module(<normalized>)`` — for names given as import names
+       (stdlib modules, or deps named by their import name) and to surface the
+       module ``__version__`` when metadata had nothing.
+
+    Args:
+        name: The dependency as listed in :class:`~pyclawd.project.DoctorConfig`.
+        required: When True a missing dep is FAIL (core dep); else WARN (dev dep).
+
+    Returns:
+        An OK check with a version detail when present, else FAIL/WARN.
+    """
+    from importlib.metadata import PackageNotFoundError, version
+
+    # 1. Try by distribution name — handles PyPI names with a differing import name.
     try:
-        mod = importlib.import_module(name)
+        return Check(OK, name, version(name))
+    except PackageNotFoundError:
+        pass
+    except Exception:
+        pass
+
+    # 2. Fall back to importing (names given as import names, e.g. stdlib modules).
+    try:
+        mod = importlib.import_module(name.replace("-", "_"))
         return Check(OK, name, _module_version(mod))
     except Exception as exc:
         return Check(FAIL if required else WARN, name, f"not importable ({type(exc).__name__})")
@@ -338,29 +375,47 @@ def _check_quality_targets(project: Project) -> list[Check]:
     return checks
 
 
-def _check_skills() -> Check | None:
-    """WARN when user-scope pyclawd skills have drifted from the running pyclawd.
+def _check_skills() -> list[Check]:
+    """WARN when user-scope pyclawd skills have drifted from, or are orphaned by, this pyclawd.
 
     Skills are **copied** into ``~/.claude/skills`` (so they ship with the project's
-    agent setup), which means a pyclawd upgrade does not refresh them automatically.
-    This surfaces that staleness — the fix is ``pyclawd skills install``, which
-    auto-refreshes drifted skills. Returns ``None`` (no row) when no skills are
-    installed (the user opted out) so it never nags a skill-free project.
-    """
-    from .commands.skills import drifted_installed_skills, user_skills_dir
+    agent setup), which means a pyclawd upgrade neither refreshes them nor removes the
+    ones it dropped. This surfaces both staleness conditions:
 
+    - **drift** — an installed skill whose content lags the bundled version; fix with
+      ``pyclawd skills install`` (auto-refreshes drifted skills).
+    - **orphans** — a ``pyclawd``/``pyclawd-*`` skill no longer in this bundle, left
+      behind from an older pyclawd; fix with ``pyclawd skills prune``.
+
+    Returns no rows when nothing is installed (the user opted out) so it never nags a
+    skill-free project; both rows can appear together.
+    """
     try:
         drifted = drifted_installed_skills()
+        orphaned = orphaned_installed_skills()
     except Exception:
-        return None
+        return []
     target = user_skills_dir()
-    if not drifted:
-        return None
-    return Check(
-        WARN,
-        "skills",
-        f"{len(drifted)} stale in {target}: {', '.join(drifted)} — run `pyclawd skills install`",
-    )
+    checks: list[Check] = []
+    if drifted:
+        checks.append(
+            Check(
+                WARN,
+                "skills",
+                f"{len(drifted)} stale in {target}: {', '.join(drifted)} — "
+                "run `pyclawd skills install`",
+            )
+        )
+    if orphaned:
+        checks.append(
+            Check(
+                WARN,
+                "skills",
+                f"{len(orphaned)} orphaned in {target}: {', '.join(orphaned)} — "
+                "run `pyclawd skills prune`",
+            )
+        )
+    return checks
 
 
 def _check_git(root: Path | None) -> Check:
@@ -398,7 +453,9 @@ def collect(project: Project | None = None) -> list[Check]:
             _check_pyclawd(),
             _check_python(),
             Check(
-                WARN, "project config", "no .pyclawd/config.py found — run pyclawd inside a project"
+                WARN,
+                "project config",
+                "no .pyclawd/config.py — run `pyclawd new` to adopt this repo (pyclawd-adopt)",
             ),
             _check_git(None),
         ]
@@ -429,9 +486,7 @@ def collect(project: Project | None = None) -> list[Check]:
     checks += _check_docs(project)
     checks += _check_golden(project)
     checks += _check_quality_targets(project)
-    skills_check = _check_skills()
-    if skills_check is not None:
-        checks.append(skills_check)
+    checks += _check_skills()
     checks += _check_repo(project)
     checks.append(_check_git(project.root))
     return checks

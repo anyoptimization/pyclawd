@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import json as _json
 import re
+from dataclasses import dataclass
 from pathlib import Path
 
 import typer
@@ -128,6 +129,25 @@ def typecheck(
 
 
 # --- the aggregate gate ------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class StepResult:
+    """One ``check`` step's outcome, consumed by the human and JSON renderers.
+
+    Attributes:
+        verb: The step name (e.g. ``"lint"``, ``"test"``).
+        exit_code: The step's exit code, or ``None`` when the step was skipped.
+        log: Path to the tee'd log file when the step failed and logging was on,
+            else ``None`` (also ``None`` on success or when skipped).
+        reason: Why the step was skipped (e.g. ``"quality-failed"``); empty for
+            steps that actually ran.
+    """
+
+    verb: str
+    exit_code: int | None
+    log: Path | None
+    reason: str
 
 
 # Maps a check_sequence verb to the (label, argv) a non-test step runs. The
@@ -329,13 +349,12 @@ def check(
     log_dir = category_dir("check", project) if want_logs else None
     rid = run_id() if want_logs else ""
 
-    # (verb, exit_code | None-if-skipped, log_path | None, reason-if-skipped)
-    results: list[tuple[str, int | None, Path | None, str]] = []
+    results: list[StepResult] = []
     quality_failed = False
 
     for verb in sequence:
         if verb not in _QUALITY_STEPS and quality_failed:
-            results.append((verb, None, None, "quality-failed"))
+            results.append(StepResult(verb, None, None, "quality-failed"))
             continue
 
         if not json_output:
@@ -346,7 +365,7 @@ def check(
         rc = _run_step(
             verb, project, quality, fix=fix, log=step_log, paths=resolved_paths, quiet=json_output
         )
-        results.append((verb, rc, step_log if rc != 0 else None, ""))
+        results.append(StepResult(verb, rc, step_log if rc != 0 else None, ""))
         if rc != 0:
             if fail_fast:
                 break
@@ -361,7 +380,7 @@ def check(
 
 def _emit_human(
     quality: QualityConfig,
-    results: list[tuple[str, int | None, Path | None, str]],
+    results: list[StepResult],
     skip_set: set[str],
     auto_skipped: set[str],
     fail_fast: bool,
@@ -370,16 +389,16 @@ def _emit_human(
     """Render the human ✓/✗ summary and raise ``typer.Exit`` with the gate's code."""
     typer.echo("\ncheck summary:")
     any_failed = False
-    ran_verbs = {v for v, _, _, _ in results}
-    for step_verb, step_rc, step_log, _reason in results:
-        if step_rc is None:
-            typer.secho(f"  ·  {step_verb}  (skipped — fix quality first)", fg="bright_black")
-        elif step_rc == 0:
-            typer.secho(f"  ✓  {step_verb}", fg="green")
+    ran_verbs = {r.verb for r in results}
+    for step in results:
+        if step.exit_code is None:
+            typer.secho(f"  ·  {step.verb}  (skipped — fix quality first)", fg="bright_black")
+        elif step.exit_code == 0:
+            typer.secho(f"  ✓  {step.verb}", fg="green")
         else:
             any_failed = True
-            suffix = f"  →  {step_log}" if step_log else f"  (exit {step_rc})"
-            typer.secho(f"  ✗  {step_verb}{suffix}", fg="red")
+            suffix = f"  →  {step.log}" if step.log else f"  (exit {step.exit_code})"
+            typer.secho(f"  ✗  {step.verb}{suffix}", fg="red")
     for verb in quality.check_sequence:
         if verb in skip_set:
             typer.secho(f"  ·  {verb}  (--skip)", fg="bright_black")
@@ -389,7 +408,7 @@ def _emit_human(
             typer.secho(f"  ·  {verb}  (skipped — fail-fast)", fg="bright_black")
 
     if any_failed:
-        failed_verbs = {v for v, r, _, _ in results if r is not None and r != 0}
+        failed_verbs = {r.verb for r in results if r.exit_code is not None and r.exit_code != 0}
         if {"format-check", "lint"} & failed_verbs and not fix:
             typer.secho("\n  hint: run `pyclawd check --fix` to apply autofixes.", fg="yellow")
         typer.secho("\n❌ check FAILED", fg="red")
@@ -400,7 +419,7 @@ def _emit_human(
 
 def _emit_json(
     quality: QualityConfig,
-    results: list[tuple[str, int | None, Path | None, str]],
+    results: list[StepResult],
     skip_set: set[str],
     auto_skipped: set[str],
     fail_fast: bool,
@@ -414,22 +433,24 @@ def _emit_json(
     An orchestrator branches on ``passed`` and per-step ``status`` without parsing
     human text.
     """
-    ran = {v for v, _, _, _ in results}
+    ran = {r.verb for r in results}
     steps: list[dict[str, object]] = []
     any_failed = False
-    for verb, rc, log, reason in results:
-        if rc is None:
-            steps.append({"verb": verb, "status": "skipped", "exit_code": None, "reason": reason})
-        elif rc == 0:
-            steps.append({"verb": verb, "status": "ok", "exit_code": 0})
+    for step in results:
+        if step.exit_code is None:
+            steps.append(
+                {"verb": step.verb, "status": "skipped", "exit_code": None, "reason": step.reason}
+            )
+        elif step.exit_code == 0:
+            steps.append({"verb": step.verb, "status": "ok", "exit_code": 0})
         else:
             any_failed = True
             steps.append(
                 {
-                    "verb": verb,
+                    "verb": step.verb,
                     "status": "fail",
-                    "exit_code": rc,
-                    "log": str(log) if log else None,
+                    "exit_code": step.exit_code,
+                    "log": str(step.log) if step.log else None,
                 }
             )
     for verb in quality.check_sequence:

@@ -41,7 +41,9 @@ pyclawd new myproj      # scaffold a fresh best-practice project
 cd myproj
 
 pyclawd new             # …or, inside an existing repo, ADOPT pyclawd
-                        # (writes ./.pyclawd/config.py, inferring sensible defaults)
+                        # (detects flat-vs-src layout, infers root_markers, writes
+                        #  ./.pyclawd/config.py, and prints a Phase-0 readiness report)
+pyclawd new --scaffold-pyproject   # also drop a starter ruff/mypy/pytest config
 
 pyclawd doctor          # health-check the dev env
 pyclawd test fast       # <30s smoke tier
@@ -62,7 +64,7 @@ pyclawd check           # the full quality gate
 | Aggregate quality gate | `pyclawd check` |
 | Build / dist / clean | `pyclawd compile` · `pyclawd dist` · `pyclawd clean [--ext]` |
 | Docs (if configured) | `pyclawd docs build\|run\|render\|serve\|status\|failures\|exec <page>` |
-| Scaffold / adopt | `pyclawd new <name>` · `pyclawd new` |
+| Scaffold / adopt | `pyclawd new <name>` · `pyclawd new` (adopt: detects layout + Phase-0 readiness) · `pyclawd new --scaffold-pyproject` |
 | Code map (file → description) | `pyclawd ls [DIR]` · `pyclawd ls --missing` · `pyclawd ls --py` |
 | Repo root / version | `pyclawd root` · `pyclawd version` |
 
@@ -103,7 +105,7 @@ project = Project(
         format_cmd=["ruff", "format"],
         format_check_cmd=["ruff", "format", "--check"],
         typecheck_cmd=["mypy", "src"],
-        check_sequence=["format-check", "lint", "typecheck", "test"],
+        check_sequence=["format-check", "lint", "typecheck", "descriptions", "test"],
     ),
     test=TestConfig(                      # tests dir + tier marker expressions
         tests_dir="tests/",
@@ -121,7 +123,7 @@ project = Project(
 )
 ```
 
-The nested configs (`QualityConfig`, `TestConfig`, `DocsConfig`, `DoctorConfig`) each gate their command group: leave one out and those commands self-report as unconfigured instead of crashing.
+The nested configs (`QualityConfig`, `TestConfig`, `DocsConfig`, `DoctorConfig`, plus the optional `BuildConfig` via `project.build` and `GoldenConfig`) each gate their command group: leave one out and those commands self-report as unconfigured instead of crashing (e.g. `build=None` → `compile`/`dist`/`clean` exit 2).
 
 Two worked examples bracket the range:
 
@@ -132,7 +134,7 @@ Copy whichever is closer and delete what you don't use.
 
 ## Skills
 
-pyclawd ships agent-facing slash-command skills under [`skills/`](skills/): the start-here umbrella `pyclawd` skill plus the focused `pyclawd-doctor`, `pyclawd-tests`, `pyclawd-quality`, `pyclawd-golden`, `pyclawd-docs`, and `pyclawd-upgrade`. They are thin wrappers over the CLI. Copy or symlink the `pyclawd-*` directories into a project's `.claude/skills/` — see [`skills/README.md`](skills/README.md). Agent doctrine for any pyclawd project lives in [`AGENTS.md`](AGENTS.md).
+pyclawd ships agent-facing slash-command skills under [`skills/`](skills/): the start-here umbrella `pyclawd` router skill (a lean overview plus on-demand `references/{mental-model,tests,quality,docs,packaging}.md` carrying the testing/quality/docs/packaging doctrine) plus the four focused standalone skills `pyclawd-adopt` (adopt pyclawd into an existing repo — red-to-green with zero behavior regression), `pyclawd-golden`, `pyclawd-doctor`, and `pyclawd-upgrade` (migrate *after* a pyclawd version bump — the upgrade counterpart to first-time adoption). They are thin wrappers over the CLI. `pyclawd skills install` copies (or symlinks) the `pyclawd-*` directories into your **user-scope** `~/.claude/skills/` by default — they are generic, so they are shared across every project rather than committed per-repo — see [`skills/README.md`](skills/README.md). Agent doctrine for any pyclawd project lives in [`AGENTS.md`](AGENTS.md).
 
 ## Status
 

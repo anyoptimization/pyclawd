@@ -217,6 +217,39 @@ class CoverageConfig:
 
 
 @dataclass(frozen=True)
+class BuildConfig:
+    """Build / dist / clean settings for ``pyclawd compile`` / ``dist`` / ``clean``.
+
+    Groups the project's optional build pipeline. Every field defaults to empty,
+    so ``BuildConfig()`` describes a pure-Python project with nothing to compile
+    and nothing project-specific to clean. When a command's backing field is
+    empty (or :attr:`Project.build` itself is ``None``) the corresponding command
+    self-reports that the step is unconfigured and exits 2 rather than running an
+    empty command.
+
+    Args:
+        compile_cmd: Args passed to the dev Python for ``pyclawd compile``
+            (e.g. ``["setup.py", "build_ext", "--inplace"]``). Empty (the default)
+            means the project has no compile step.
+        dist_cmd: Args passed to the dev Python for ``pyclawd dist`` (e.g.
+            ``["setup.py", "sdist"]``). Empty (the default) means no dist step.
+        clean_targets: Root-relative paths removed by ``pyclawd clean``
+            (e.g. ``["build", "dist", "mypkg.egg-info"]``). Defaults to empty.
+        clean_ext_dir: Root-relative directory holding compiled artifacts
+            (e.g. ``"mypkg/_compiled"``). Empty (the default) disables ``--ext``.
+        clean_ext_globs: Globs removed under :attr:`clean_ext_dir` when ``pyclawd
+            clean --ext`` runs (e.g. ``["*.c", "*.cpp", "*.so", "*.html"]``).
+            Defaults to empty.
+    """
+
+    compile_cmd: list[str] = field(default_factory=list)
+    dist_cmd: list[str] = field(default_factory=list)
+    clean_targets: list[str] = field(default_factory=list)
+    clean_ext_dir: str = ""
+    clean_ext_globs: list[str] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
 class DescriptionConfig:
     r"""File-description checking settings (``pyclawd ls --missing`` / ``"descriptions"`` step).
 
@@ -339,24 +372,16 @@ class Project:
             ``".pyclawd/work"``). Relative paths resolve against the repo root. The
             ``PYCLAWD_WORK_DIR`` environment variable overrides it at runtime. Logs live
             under ``<work_dir>/logs/<category>/``.
-        compile_cmd: Args passed to the dev Python for ``pyclawd compile``
-            (e.g. ``["setup.py", "build_ext", "--inplace"]``). Empty (the default)
-            means the project has no compile step — ``pyclawd compile`` reports that
-            and exits cleanly.
-        dist_cmd: Args passed to the dev Python for ``pyclawd dist`` (e.g.
-            ``["setup.py", "sdist"]``). Empty (the default) means no dist step.
-        clean_targets: Root-relative paths removed by ``pyclawd clean``
-            (e.g. ``["build", "dist", "mypkg.egg-info"]``). Defaults to empty.
-        clean_ext_dir: Root-relative directory holding compiled artifacts
-            (e.g. ``"mypkg/_compiled"``). Empty (the default) disables ``--ext``.
-        clean_ext_globs: Globs removed under :attr:`clean_ext_dir` when ``pyclawd clean --ext`` runs
-            (e.g. ``["*.c", "*.cpp", "*.so", "*.html"]``). Defaults to empty.
         src_dir: Default directory ``pyclawd ls`` lists (the code/source root), relative to
             the repo root. Defaults to ``src``.
         descriptions: Controls which files the ``"descriptions"`` step (and ``pyclawd ls
             --missing``) checks for a top-of-file description. Defaults to
             ``DescriptionConfig()`` — Python/Cython only, no exclusions. See
             :class:`DescriptionConfig` for the ``include`` / ``exclude`` regex knobs.
+        build: Build / dist / clean settings for ``pyclawd compile`` / ``dist`` /
+            ``clean``, or ``None`` (the default) when the project has no build step.
+            When ``None`` the compile/dist/clean commands self-report and exit 2.
+            See :class:`BuildConfig`.
         docs: Documentation-build settings, or ``None`` (the default) when the project
             has no docs. When ``None`` the ``pyclawd docs`` command group is not even
             registered.
@@ -388,16 +413,10 @@ class Project:
     pyclawd_version: str = ""
     work_dir: str = ""
 
-    compile_cmd: list[str] = field(default_factory=list)
-    dist_cmd: list[str] = field(default_factory=list)
-
-    clean_targets: list[str] = field(default_factory=list)
-    clean_ext_dir: str = ""
-    clean_ext_globs: list[str] = field(default_factory=list)
-
     src_dir: str = "src"
     descriptions: DescriptionConfig = field(default_factory=DescriptionConfig)
 
+    build: BuildConfig | None = None
     docs: DocsConfig | None = None
     quality: QualityConfig | None = None
     coverage: CoverageConfig | None = None

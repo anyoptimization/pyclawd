@@ -20,6 +20,7 @@ from pyclawd import (
     FAIL,
     OK,
     WARN,
+    BuildConfig,
     Check,
     DocsConfig,
     DoctorConfig,
@@ -79,15 +80,19 @@ project = Project(
     #   ["conda", "run", "-n", "acme-dev", "python"]  -> one pyclawd, many conda envs
     #   ["uv", "run", "python"]                  -> uv-managed env
     python_cmd=[],
-    # --- build / dist / clean (omit any for a pure-Python project) --------- #
-    # Args handed to the dev Python: `pyclawd compile` → `python setup.py build_ext ...`.
-    compile_cmd=["setup.py", "build_ext", "--inplace"],
-    dist_cmd=["setup.py", "sdist"],
-    # `pyclawd clean` removes these root-relative paths (guarded to stay in-repo).
-    clean_targets=["build", "dist", "acme.egg-info"],
-    # `pyclawd clean --ext` removes these globs under this dir (forces a recompile).
-    clean_ext_dir="acme/functions/compiled",
-    clean_ext_globs=["*.c", "*.cpp", "*.so", "*.html"],
+    # --- build / dist / clean (omit `build` entirely for a pure-Python project) #
+    # All build knobs live in one nested BuildConfig, reached via `project.build`.
+    # When `build` is None the compile/dist/clean commands self-report and exit 2.
+    build=BuildConfig(
+        # Args handed to the dev Python: `pyclawd compile` → `python setup.py build_ext ...`.
+        compile_cmd=["setup.py", "build_ext", "--inplace"],
+        dist_cmd=["setup.py", "sdist"],
+        # `pyclawd clean` removes these root-relative paths (guarded to stay in-repo).
+        clean_targets=["build", "dist", "acme.egg-info"],
+        # `pyclawd clean --ext` removes these globs under this dir (forces a recompile).
+        clean_ext_dir="acme/functions/compiled",
+        clean_ext_globs=["*.c", "*.cpp", "*.so", "*.html"],
+    ),
     # Default directory `pyclawd ls` lists (the code/source root), relative to root.
     src_dir="acme",
     # --- code quality (lint / format / typecheck / check) ----------------- #

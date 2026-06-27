@@ -29,7 +29,10 @@ def config() -> None:
         console.print(f"[red]✗ {exc}[/red]")
         raise typer.Exit(2) from None
     if project is None:
-        console.print("[red]✗ no .pyclawd/config.py found — run pyclawd inside a project[/red]")
+        console.print(
+            "[red]✗ no .pyclawd/config.py found — run `pyclawd new` to adopt this repo "
+            "(see the pyclawd-adopt skill), or cd into a project.[/red]"
+        )
         raise typer.Exit(2)
 
     console.print(f"\n[bold]pyclawd — {project.name}[/bold]")

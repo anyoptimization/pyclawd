@@ -1,12 +1,12 @@
 ---
 name: pyclawd-golden
 description: Prove behavior is *unchanged* across a refactor or migration with pyclawd's golden behavior-regression oracle — tag a test `@pytest.mark.golden` and `return` a value; the pytest plugin captures the return value and compares it against a committed baseline with a per-snapshot tolerance. Works standalone in a bare-pytest repo with zero pyclawd references. Covers the tag+return model, the record→review→commit bless workflow, why the hash is only a fast path (tolerance is the gate), parametrized-test keys, and reading a golden failure. Use when refactoring, doing a batch/fleet migration, or when "did this change any numbers?" must be answered.
-when_to_use: Refactoring or migrating code that must not change observable outputs, verifying a fleet of agent edits, adding a regression baseline, or a golden test failed and you need to tell a real regression from an intended change. The complement to `pyclawd-quality` — quality proves *clean*, golden proves *unchanged*.
+when_to_use: Refactoring or migrating code that must not change observable outputs, verifying a fleet of agent edits, adding a regression baseline, or a golden test failed and you need to tell a real regression from an intended change. The complement to the `pyclawd` skill's quality reference — quality proves *clean*, golden proves *unchanged*.
 ---
 
 # pyclawd-golden
 
-The static gate (`pyclawd check`: format/lint/typecheck/test) proves code is
+The static gate (`pyclawd check`: format/lint/typecheck/descriptions/test) proves code is
 **clean**. It cannot prove behavior is **unchanged** — a "clean" lint fix can
 still change a number. `golden` closes that gap: it snapshots an observable value
 to a **committed baseline** and fails when a future run drifts from it. Because the
@@ -226,6 +226,15 @@ If a baseline is missing (`no baseline for …`), you never recorded it — run
 
 ## Doctrine for a migration / batch run
 
+**Tests first, golden for the gaps.** When the change is mechanical (an adoption, a
+format/lint sweep, a fleet refactor), the repo's **existing test suite is the primary
+oracle** — pin it green before, keep it green after; for behavior-preserving edits an
+identically-passing suite is the first proof nothing moved. Reach for golden for the
+observable outputs the tests *don't* lock (exact numerics, serialized artifacts) and
+especially before a broad `ruff --fix` (the one step that can change behavior). Don't
+snapshot everything — pick the few outputs that characterize behavior. (Full adoption
+playbook: **pyclawd-adopt**.)
+
 1. **Record baselines on the known-good tree first**, and commit them. Now the
    migration is correct iff golden stays green — no stash-juggling.
 2. **Agents compare, humans bless.** Re-run `pyclawd golden` per file/batch; never
@@ -238,10 +247,11 @@ If a baseline is missing (`no baseline for …`), you never recorded it — run
 
 ## Where to go next
 
-| Need | Skill |
+| Need | Where |
 |---|---|
-| Lint / format / typecheck / the `check` gate | `pyclawd-quality` |
-| Running tiered tests, the fix-loop | `pyclawd-tests` |
-| Env looks wrong, imports fail | `pyclawd-doctor` |
-| Migrating a whole framework | `.claude/docs/migration.md` |
-| Mental model + full doctrine | `pyclawd` (umbrella) · `AGENTS.md` |
+| Lint / format / typecheck / the `check` gate | the **pyclawd** skill's quality reference (`references/quality.md`) |
+| Running tiered tests, the fix-loop | the **pyclawd** skill's testing reference (`references/tests.md`) |
+| Env looks wrong, imports fail | **pyclawd-doctor** |
+| Onboarding an existing repo (baselines-first adoption) | **pyclawd-adopt** |
+| Migrating after a pyclawd upgrade | **pyclawd-upgrade** |
+| Mental model + full doctrine | **pyclawd** (router) · `AGENTS.md` |

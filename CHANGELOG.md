@@ -50,6 +50,19 @@ the running pyclawd has a different `major.minor`, pointing here for what change
   an `(editable)` marker) so you can tell which pyclawd is driving a project.
 
 ### Changed
+- **Build fields grouped into a new `BuildConfig` (breaking config change).** The
+  five loose top-level build knobs — `compile_cmd`, `dist_cmd`, `clean_targets`,
+  `clean_ext_dir`, `clean_ext_globs` — have moved off `Project` into a new frozen
+  `BuildConfig` dataclass, reached via `Project.build` (a `BuildConfig | None`,
+  default `None`). Migrate `Project(compile_cmd=…, clean_targets=…, …)` to
+  `Project(build=BuildConfig(compile_cmd=…, clean_targets=…, …))`; `BuildConfig` is
+  exported from `pyclawd` alongside the other `*Config`s. When `Project.build` is
+  `None` the `compile` / `dist` / `clean` commands self-report and exit 2 (the same
+  0/2 contract as before). This is a clean break — there is no compatibility shim.
+- **Scaffolded `check_sequence` now includes the `descriptions` step** — `pyclawd
+  new` writes `["format-check", "lint", "typecheck", "descriptions", "test"]`, so a
+  freshly scaffolded project enforces the file-description code-map doctrine out of
+  the box, matching pyclawd's own dogfood config.
 - **Test taxonomy aligned to two marker axes** — *speed* (`slow`) and *scope*
   (`integration`) — with a canonical tier ladder (`fast = not slow and not
   integration`, `default = not slow`, `all =` everything). The `long` marker is

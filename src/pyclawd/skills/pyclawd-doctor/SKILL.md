@@ -36,3 +36,13 @@ Health-check the dev environment. `pyclawd doctor` validates the interpreter, co
 | Uncompiled / stale extensions | `pyclawd compile` (then `pyclawd clean --ext` + `pyclawd compile` if stale). |
 | Missing tool file / binary | Install the named binary or restore the file the WARN/FAIL points at. |
 | Mass test-collection import errors | Almost always an env problem — `pyclawd doctor`, then fix the FAILs. |
+
+## Where to go next
+
+| Need | Where |
+|---|---|
+| Env is healthy — now run the tiered tests + fix-loop | the `pyclawd` skill's testing reference (`references/tests.md`) |
+| Prove behavior is unchanged after a fix | **pyclawd-golden** |
+| Config built on a different pyclawd (version drift) | **pyclawd-upgrade** |
+| Onboarding an existing/legacy repo | **pyclawd-adopt** |
+| Mental model + full doctrine | **pyclawd** (router) · `AGENTS.md` |

@@ -7,6 +7,7 @@ with concrete examples and cited sources. These findings are used to shape the p
 
 - [BEST_PRACTICES.md](BEST_PRACTICES.md) — Opinionated consolidated rules for agent-driven development
 - [PYCLAWD_ROADMAP.md](PYCLAWD_ROADMAP.md) — Concrete change/add recommendations for pyclawd, grouped by priority
+- [pyproject-toml.md](pyproject-toml.md) — Best-practice `pyproject.toml` defaults (build/metadata/license/deps/ruff/mypy/pytest/coverage), with the line-length verdict (June 2026)
 
 ## Source Research
 

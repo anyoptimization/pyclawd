@@ -11,6 +11,20 @@ import typer
 from .. import run, tests
 from . import _PASSTHROUGH
 
+# The built-in pipeline sub-verbs (logged/instrumented runners + views). Anything
+# else leading the args is either a config-defined category tier or pytest passthrough.
+_SUB_VERBS = ("run", "fast", "all", "failures", "timings", "fix")
+
+
+def _looks_like_pytest_arg(token: str) -> bool:
+    """True if *token* is a pytest target/flag rather than a category name.
+
+    Paths (``tests/foo.py``), nodeids (``...::name``), and flags (``-k``, ``-x``,
+    ``-m``) must pass straight through to pytest. A bare word with none of these
+    markers is treated as a (possibly mistyped) category instead.
+    """
+    return token.startswith("-") or "/" in token or "::" in token or ".py" in token
+
 
 def pytest(ctx: typer.Context) -> None:
     """Run pytest over tests/ (excludes `long` unless you pass your own `-m`)."""
@@ -44,7 +58,7 @@ def test(ctx: typer.Context) -> None:
     args = list(ctx.args)
     verb = args[0] if args else None
 
-    if verb in {"run", "fast", "all", "failures", "timings", "fix"}:
+    if verb in _SUB_VERBS:
         raise typer.Exit(tests.dispatch(verb, args[1:]))
 
     project = run.load_project_or_exit()
@@ -55,6 +69,20 @@ def test(ctx: typer.Context) -> None:
     category = "default"
     if verb in tier_markers:
         category = args.pop(0)
+    elif verb is not None and not _looks_like_pytest_arg(verb):
+        # A bare leading word that is neither a known category/sub-verb nor a pytest
+        # target (path/nodeid/flag) is almost certainly a mistyped category. Fail
+        # clean at the pyclawd level instead of letting pytest emit a confusing
+        # "file or directory not found: <word>".
+        categories = sorted(set(tier_markers) | set(_SUB_VERBS))
+        typer.echo(
+            f"pyclawd test: unknown category {verb!r}.\n"
+            f"Valid categories: {', '.join(categories)}.\n"
+            f"For pytest passthrough pass a path, nodeid, or flag "
+            f"(e.g. `pyclawd test -k EXPR` or `pyclawd test tests/foo.py::name`).",
+            err=True,
+        )
+        raise typer.Exit(2)
 
     markers = tier_markers.get(category, "")
     raise typer.Exit(run.pytest(args, default_markers=markers, tests_dir=project.test.tests_dir))

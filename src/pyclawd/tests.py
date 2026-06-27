@@ -19,6 +19,7 @@ it is never stale relative to the runner.
 
 from __future__ import annotations
 
+import argparse
 import datetime
 import hashlib
 import json
@@ -301,6 +302,61 @@ def fix(extra_args: list[str], project: Project) -> int:
 # ---- dispatch ---------------------------------------------------------------
 
 
+class _TimingsArgError(Exception):
+    """Raised by :class:`_TimingsParser` instead of exiting the process."""
+
+
+class _TimingsParser(argparse.ArgumentParser):
+    """An ``ArgumentParser`` that raises rather than calling ``sys.exit``.
+
+    The default ``ArgumentParser.error`` prints usage and calls ``sys.exit(2)``,
+    which would escape :func:`dispatch` as a ``SystemExit``. We want a plain
+    return-code-2 so the verb dispatch stays a normal function call.
+    """
+
+    def error(self, message: str) -> None:  # type: ignore[override]
+        """Surface the parse error as an exception instead of exiting."""
+        raise _TimingsArgError(message)
+
+
+def _parse_timings_args(args: list[str]) -> tuple[int, float | None]:
+    """Parse the ``timings`` verb's ``--top`` / ``--slow-threshold`` flags.
+
+    Accepts both the space form (``--top 10``) and the equals form
+    (``--top=10``); same for ``--slow-threshold``. Defaults match the
+    :func:`print_timings` signature (``top=25``, ``slow_threshold=None``).
+
+    Args:
+        args: The argument tokens after the ``timings`` verb.
+
+    Returns:
+        The parsed ``(top, slow_threshold)`` pair.
+
+    Raises:
+        _TimingsArgError: If a value cannot be coerced to the expected type.
+    """
+
+    def _as_int(value: str) -> int:
+        try:
+            return int(value)
+        except ValueError:
+            raise argparse.ArgumentTypeError(f"--top expects an integer, got {value!r}") from None
+
+    def _as_float(value: str) -> float:
+        try:
+            return float(value)
+        except ValueError:
+            raise argparse.ArgumentTypeError(
+                f"--slow-threshold expects a float, got {value!r}"
+            ) from None
+
+    parser = _TimingsParser(prog="pyclawd test timings", add_help=False)
+    parser.add_argument("--top", type=_as_int, default=25)
+    parser.add_argument("--slow-threshold", type=_as_float, default=None)
+    ns = parser.parse_args(args)
+    return ns.top, ns.slow_threshold
+
+
 def dispatch(verb: str, args: list[str]) -> int:
     """Route a test sub-command verb (run/fast/all/failures/timings/fix) to its handler."""
     project = load_project_or_exit()
@@ -314,31 +370,11 @@ def dispatch(verb: str, args: list[str]) -> int:
     if verb == "failures":
         return print_failures(project)
     if verb == "timings":
-        top = 25
-        slow_threshold: float | None = None
-        for i, a in enumerate(args):
-            raw_top: str | None = None
-            if a == "--top" and i + 1 < len(args):
-                raw_top = args[i + 1]
-            elif a.startswith("--top="):
-                raw_top = a.split("=", 1)[1]
-            if raw_top is not None:
-                try:
-                    top = int(raw_top)
-                except ValueError:
-                    print(f"✗ --top expects an integer, got {raw_top!r}", file=sys.stderr)
-                    return 2
-            raw_st: str | None = None
-            if a == "--slow-threshold" and i + 1 < len(args):
-                raw_st = args[i + 1]
-            elif a.startswith("--slow-threshold="):
-                raw_st = a.split("=", 1)[1]
-            if raw_st is not None:
-                try:
-                    slow_threshold = float(raw_st)
-                except ValueError:
-                    print(f"✗ --slow-threshold expects a float, got {raw_st!r}", file=sys.stderr)
-                    return 2
+        try:
+            top, slow_threshold = _parse_timings_args(args)
+        except _TimingsArgError as exc:
+            print(f"✗ {exc}", file=sys.stderr)
+            return 2
         return print_timings(project, top, slow_threshold)
     if verb == "fix":
         return fix(args, project)
