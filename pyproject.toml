@@ -126,9 +126,11 @@ module = ["numpy", "numpy.*"]
 follow_imports = "skip"
 follow_imports_for_stubs = true
 
-# jupyter-cache ships no type stubs / py.typed; docs.py imports it lazily for the
-# `pyclawd docs failures` path. Scope the missing-import allowance to it (rather
-# than a global ignore_missing_imports) so every other unstubbed import still errors.
+# jupyter-cache + nbformat are docs-only optional deps imported lazily in docs.py
+# (the `pyclawd docs failures` path); they live in the isolated ./docs env, not the
+# base/dev env, so a CI `check` job without docs deps can't resolve them. Scope the
+# missing-import allowance to exactly these (not a global ignore_missing_imports) so
+# every other unstubbed import still errors.
 [[tool.mypy.overrides]]
-module = ["jupyter_cache.*"]
+module = ["jupyter_cache.*", "nbformat", "nbformat.*"]
 ignore_missing_imports = true
