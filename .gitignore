@@ -227,3 +227,7 @@ __marimo__/
 # src/pyclawd/web_frontend; shipped into the wheel via hatch artifacts, not git).
 src/pyclawd/web/static/
 src/pyclawd/web_frontend/node_modules/
+
+# Repo-root convenience symlink → src/pyclawd/skills (real tree is the package
+# data shipped in the wheel). Untracked so it cannot shadow that tree in the sdist.
+/skills

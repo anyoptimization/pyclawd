@@ -66,21 +66,41 @@ web-test = ["httpx>=0.27"]
 [tool.hatch.version]
 path = "src/pyclawd/__init__.py"
 
+# The default `python -m build` goes sdist → wheel, so the sdist must be
+# self-contained for a source install to produce a complete wheel. The bundled
+# `skills/` tree is shipped via force-include (a literal filesystem copy) rather than
+# the default VCS file-walk: in this repo the walk silently dropped the
+# skills/pyclawd and skills/pyclawd-doctor subtrees, so we exclude skills from the
+# walk and force-include the whole tree deterministically. The BUILT web/static
+# frontend (gitignored) rides along as an artifact. (The repo-root `skills` symlink is
+# untracked — see .gitignore — so it cannot shadow the real package tree.)
+[tool.hatch.build.targets.sdist]
+exclude = ["src/pyclawd/skills"]
+artifacts = ["src/pyclawd/web/static/**"]
+
+[tool.hatch.build.targets.sdist.force-include]
+"src/pyclawd/skills" = "src/pyclawd/skills"
+
 [tool.hatch.build.targets.wheel]
 packages = ["src/pyclawd"]
 include = ["src/pyclawd/py.typed"]  # PEP 561 — ship the typed marker (we're a typed lib)
 # Ship the BUILT web frontend (gitignored, so listed as an artifact to override VCS
 # exclusion) and keep its SOURCE (the Vite/React project) OUT of the wheel — only
 # `pyclawd[web]` users need the static bundle, nobody needs the TS sources or Node.
+# Exclude skills from the package walk; it is force-included below (same reason as the
+# sdist — the VCS walk drops subtrees of it).
 artifacts = ["src/pyclawd/web/static/**"]
-exclude = ["src/pyclawd/web_frontend"]
+exclude = ["src/pyclawd/web_frontend", "src/pyclawd/skills"]
 
-# Ship the CHANGELOG inside the wheel so `pyclawd changelog` works from any
-# pip-installed pyclawd (PyPI included) — the agent-driven upgrade flow reads it to
-# learn what changed since a project's config was authored. Editable dev checkouts
-# fall back to the repo-root CHANGELOG.md.
+# force-include ships, by literal filesystem copy (no VCS heuristics):
+#   - CHANGELOG.md → `pyclawd changelog` from any pip-installed pyclawd (editable dev
+#     checkouts fall back to the repo-root CHANGELOG.md)
+#   - skills/      → the bundled `pyclawd-*` Claude Code skills, mapped into the
+#     package as pyclawd/skills so `importlib.resources.files("pyclawd.skills")` (used
+#     by `pyclawd skills install`) resolves them from the installed wheel.
 [tool.hatch.build.targets.wheel.force-include]
 "CHANGELOG.md" = "pyclawd/CHANGELOG.md"
+"src/pyclawd/skills" = "pyclawd/skills"
 
 # --------------------------------------------------------------------------- #
 # Code-quality toolchain (dogfooded via `pyclawd lint/format/typecheck/check`).
