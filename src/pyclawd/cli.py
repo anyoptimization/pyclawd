@@ -29,6 +29,7 @@ from .commands import new as new_cmd
 from .commands import quality as quality_cmd
 from .commands import skills as skills_cmd
 from .commands import test as test_cmd
+from .commands import web as web_cmd
 from .discovery import ConfigError, load_project, set_config_override
 from .doctor import dump_json, run_doctor
 
@@ -177,6 +178,7 @@ skills_cmd.register(app)
 docs_cmd.register(app)
 golden_cmd.register(app)
 ls_cmd.register(app)
+web_cmd.register(app)
 
 
 if __name__ == "__main__":

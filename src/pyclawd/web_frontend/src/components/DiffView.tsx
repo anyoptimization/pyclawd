@@ -1,0 +1,377 @@
+// Renders one file's FileView: inline or split hunks, or a full-file view. Each side
+// carries its own comment gutter — a 💬 fades in on hover and stays (highlighted) on
+// lines that already have a staged comment. In split view that means a comment
+// affordance and line numbers on BOTH the old (left) and new (right) sides.
+import { useEffect, useRef, useState } from "react";
+
+import { usePersisted } from "@/hooks";
+import { statusBadge } from "@/lib/status";
+import { useStore } from "@/store";
+import type { DiffLine, FileView, Hunk } from "@/types";
+
+/** Total px of the non-content split columns: 2×(marker+gutter) + divider. */
+const SPLIT_FIXED_PX = 28 + 46 + 7 + 28 + 46;
+
+/** colSpan large enough to span every column in either layout (browsers clamp). */
+const SPAN = 12;
+
+/** A side+line a comment attaches to, with the code on that line. */
+interface Anchor {
+  line: number;
+  side: "old" | "new";
+  code: string;
+}
+
+type Composing = Anchor | null;
+
+/** Where to anchor a comment for a whole inline line (prefers the new side). */
+function anchor(line: DiffLine): Anchor | null {
+  if (line.kind === "del" && line.old != null) return { line: line.old, side: "old", code: line.content };
+  if (line.new != null) return { line: line.new, side: "new", code: line.content };
+  if (line.old != null) return { line: line.old, side: "old", code: line.content };
+  return null;
+}
+
+export function DiffView({ view }: { view: FileView }) {
+  const { layout, selected, staged } = useStore();
+  const [composing, setComposing] = useState<Composing>(null);
+
+  // Drop any open composer when switching files.
+  useEffect(() => setComposing(null), [selected]);
+
+  const fileComments = staged.filter((c) => c.file === selected).length;
+  const shared = { composing, setComposing };
+
+  let body: React.ReactNode;
+  if (view.binary) {
+    body = <div className="p-12 text-center text-dim">Binary file — no text diff.</div>;
+  } else if (view.mode === "full") {
+    body = <InlineTable rows={view.lines} {...shared} />;
+  } else if (view.hunks.length === 0) {
+    body = <div className="p-12 text-center text-dim">No textual changes.</div>;
+  } else if (layout === "split") {
+    body = <SplitTable hunks={view.hunks} {...shared} />;
+  } else {
+    body = <InlineTable hunks={view.hunks} {...shared} />;
+  }
+
+  return (
+    <>
+      <div className="sticky top-0 z-[1] flex items-center gap-2.5 border-b border-line bg-panel px-4 py-2.5 font-mono text-xs">
+        <span className={`h-[9px] w-[9px] rounded-[2px] ${statusBadge(view.status)}`} />
+        {selected}
+        {fileComments > 0 && (
+          <span className="rounded-full bg-[#fff5e0] px-2 py-0.5 text-[11px] text-mod">
+            💬 {fileComments} comment{fileComments > 1 ? "s" : ""}
+          </span>
+        )}
+      </div>
+      {body}
+    </>
+  );
+}
+
+interface Shared {
+  composing: Composing;
+  setComposing: (c: Composing) => void;
+}
+
+const GUT = "w-px select-none whitespace-nowrap border-r border-line bg-panel px-2 text-right text-dim";
+
+// --------------------------------------------------------------------------- //
+// Inline / full-file.
+// --------------------------------------------------------------------------- //
+
+function InlineTable({ hunks, rows, composing, setComposing }: { hunks?: Hunk[]; rows?: DiffLine[] } & Shared) {
+  return (
+    <table className="w-full border-collapse font-mono text-xs leading-[1.55]">
+      <tbody>
+        {hunks
+          ? hunks.map((h, hi) => (
+              <HunkHeader key={`h${hi}`} header={h.header}>
+                {h.lines.map((line, i) => (
+                  <InlineRow key={i} line={line} composing={composing} setComposing={setComposing} />
+                ))}
+              </HunkHeader>
+            ))
+          : rows?.map((line, i) => (
+              <InlineRow key={i} line={line} composing={composing} setComposing={setComposing} />
+            ))}
+      </tbody>
+    </table>
+  );
+}
+
+function InlineRow({ line, composing, setComposing }: { line: DiffLine } & Shared) {
+  const a = anchor(line);
+  const sign = line.kind === "add" ? "+" : line.kind === "del" ? "−" : "";
+  const tone = line.kind === "add" ? "bg-add-bg" : line.kind === "del" ? "bg-del-bg" : "";
+  const gutTone = line.kind === "add" ? "bg-add-gut" : line.kind === "del" ? "bg-del-gut" : "";
+  return (
+    <>
+      <tr className="group">
+        <Marker anchor={a} onOpen={setComposing} />
+        <td className={`${GUT} ${gutTone}`}>{line.old ?? ""}</td>
+        <td className={`${GUT} ${gutTone}`}>{line.new ?? ""}</td>
+        <td className={`px-1.5 text-center text-dim ${tone}`}>{sign}</td>
+        <td className={`whitespace-pre-wrap px-2.5 [overflow-wrap:anywhere] [tab-size:var(--tab,4)] ${tone}`}>{line.content}</td>
+      </tr>
+      <Extras anchor={a} composing={composing} setComposing={setComposing} />
+    </>
+  );
+}
+
+// --------------------------------------------------------------------------- //
+// Split (side-by-side). Each side has its own marker + line-number gutter.
+// --------------------------------------------------------------------------- //
+
+function SplitTable({ hunks, composing, setComposing }: { hunks: Hunk[] } & Shared) {
+  const [ratio, setRatio] = usePersisted("pyclawd.web.splitRatio", 0.5);
+  const wrapRef = useRef<HTMLDivElement>(null);
+  const [width, setWidth] = useState(0);
+  const dragging = useRef(false);
+
+  useEffect(() => {
+    const el = wrapRef.current;
+    if (!el) return;
+    const observer = new ResizeObserver(() => setWidth(el.clientWidth));
+    observer.observe(el);
+    setWidth(el.clientWidth);
+    return () => observer.disconnect();
+  }, []);
+
+  useEffect(() => {
+    const move = (e: MouseEvent) => {
+      if (!dragging.current || !wrapRef.current) return;
+      const rect = wrapRef.current.getBoundingClientRect();
+      const c = rect.width - SPLIT_FIXED_PX;
+      setRatio(Math.max(0.1, Math.min(0.9, (e.clientX - rect.left - 74) / c))); // 74 = markerL + gutter
+    };
+    const up = () => {
+      if (dragging.current) {
+        dragging.current = false;
+        document.body.style.userSelect = "";
+      }
+    };
+    window.addEventListener("mousemove", move);
+    window.addEventListener("mouseup", up);
+    return () => {
+      window.removeEventListener("mousemove", move);
+      window.removeEventListener("mouseup", up);
+    };
+  }, [setRatio]);
+
+  const content = Math.max(0, width - SPLIT_FIXED_PX);
+  const startDrag = (e: React.MouseEvent) => {
+    if ((e.target as HTMLElement).dataset.mid) {
+      dragging.current = true;
+      document.body.style.userSelect = "none";
+      e.preventDefault();
+    }
+  };
+
+  return (
+    <div ref={wrapRef} onMouseDown={startDrag}>
+      <table style={{ width: width || "100%", tableLayout: "fixed" }} className="border-collapse font-mono text-xs leading-[1.55]">
+        <colgroup>
+          <col style={{ width: 28 }} />
+          <col style={{ width: 46 }} />
+          <col style={{ width: content * ratio }} />
+          <col style={{ width: 7 }} />
+          <col style={{ width: 28 }} />
+          <col style={{ width: 46 }} />
+          <col style={{ width: content * (1 - ratio) }} />
+        </colgroup>
+        <tbody>
+          {hunks.map((h, hi) => (
+            <HunkHeader key={hi} header={h.header}>
+              <SplitRows lines={h.lines} composing={composing} setComposing={setComposing} />
+            </HunkHeader>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function SplitRows({ lines, composing, setComposing }: { lines: DiffLine[] } & Shared) {
+  const rows: { left?: DiffLine; right?: DiffLine; ctx?: DiffLine }[] = [];
+  let dels: DiffLine[] = [];
+  let adds: DiffLine[] = [];
+  const flush = () => {
+    for (let i = 0; i < Math.max(dels.length, adds.length); i++) rows.push({ left: dels[i], right: adds[i] });
+    dels = [];
+    adds = [];
+  };
+  for (const line of lines) {
+    if (line.kind === "ctx") {
+      flush();
+      rows.push({ ctx: line });
+    } else if (line.kind === "del") dels.push(line);
+    else adds.push(line);
+  }
+  flush();
+
+  return (
+    <>
+      {rows.map((row, i) => {
+        const left = row.ctx ?? row.left;
+        const right = row.ctx ?? row.right;
+        const leftAnchor = left ? anchor(left) : null;
+        const rightAnchor = right ? anchor(right) : null;
+        return (
+          <ExtrasGroup key={i} anchors={[leftAnchor, rightAnchor]} composing={composing} setComposing={setComposing}>
+            <tr className="group">
+              <Marker anchor={leftAnchor} onOpen={setComposing} />
+              <td className={GUT}>{left?.old ?? ""}</td>
+              <td className={`whitespace-pre-wrap px-2.5 [overflow-wrap:anywhere] [tab-size:var(--tab,4)] ${left ? (row.ctx ? "" : "bg-del-bg") : "bg-panel2"}`}>
+                {left?.content ?? ""}
+              </td>
+              <td data-mid="1" className="cursor-col-resize bg-line p-0 hover:bg-accent" />
+              <Marker anchor={rightAnchor} onOpen={setComposing} />
+              <td className={GUT}>{right?.new ?? ""}</td>
+              <td className={`whitespace-pre-wrap px-2.5 [overflow-wrap:anywhere] [tab-size:var(--tab,4)] ${right ? (row.ctx ? "" : "bg-add-bg") : "bg-panel2"}`}>
+                {right?.content ?? ""}
+              </td>
+            </tr>
+          </ExtrasGroup>
+        );
+      })}
+    </>
+  );
+}
+
+// --------------------------------------------------------------------------- //
+// Shared pieces.
+// --------------------------------------------------------------------------- //
+
+function HunkHeader({ header, children }: { header: string; children: React.ReactNode }) {
+  return (
+    <>
+      <tr>
+        <td colSpan={SPAN} className="bg-[#ddf4ff] px-2.5 py-1 text-[#0550ae]">
+          @@ {header}
+        </td>
+      </tr>
+      {children}
+    </>
+  );
+}
+
+/** The per-side comment gutter cell. */
+function Marker({ anchor, onOpen }: { anchor: Anchor | null; onOpen: (a: Anchor) => void }) {
+  const { selected, staged } = useStore();
+  const has = anchor
+    ? staged.some((c) => c.file === selected && c.side === anchor.side && c.line === anchor.line)
+    : false;
+  return (
+    <td
+      onClick={anchor ? () => onOpen(anchor) : undefined}
+      title={anchor ? "Comment on this line" : ""}
+      className={`w-7 select-none border-r border-line text-center align-top text-[11px] leading-[1.55] ${
+        anchor ? "cursor-pointer" : ""
+      } ${has ? "bg-[#fff5e0]" : "bg-panel"}`}
+    >
+      {anchor && (
+        <span className={has ? "text-star" : "text-accent opacity-0 transition-opacity group-hover:opacity-70"}>
+          💬
+        </span>
+      )}
+    </td>
+  );
+}
+
+/** Renders the composer/staged-notes rows for a single inline line's anchor. */
+function Extras({ anchor, composing, setComposing }: { anchor: Anchor | null } & Shared) {
+  if (!anchor) return null;
+  return <ExtrasGroup anchors={[anchor]} composing={composing} setComposing={setComposing} />;
+}
+
+/** Emits a full-width row under a diff row carrying composer + staged notes per anchor. */
+function ExtrasGroup({
+  anchors,
+  composing,
+  setComposing,
+  children,
+}: { anchors: (Anchor | null)[]; children?: React.ReactNode } & Shared) {
+  const { selected, staged } = useStore();
+  const extras = anchors
+    .filter((a): a is Anchor => a !== null)
+    .map((a) => ({
+      anchor: a,
+      notes: staged.filter((c) => c.file === selected && c.side === a.side && c.line === a.line),
+      composing: composing?.side === a.side && composing?.line === a.line,
+    }))
+    .filter((x) => x.notes.length > 0 || x.composing);
+
+  return (
+    <>
+      {children}
+      {extras.map((x) => (
+        <tr key={`${x.anchor.side}:${x.anchor.line}`}>
+          <td colSpan={SPAN} className="p-0">
+            {x.composing && <Composer anchor={x.anchor} onClose={() => setComposing(null)} />}
+            {x.notes.map((n) => (
+              <StagedNote key={n.id} body={n.body} id={n.id} />
+            ))}
+          </td>
+        </tr>
+      ))}
+    </>
+  );
+}
+
+function Composer({ anchor, onClose }: { anchor: Anchor; onClose: () => void }) {
+  const { selected, staged, stage } = useStore();
+  const [body, setBody] = useState("");
+  const submit = () => {
+    if (!selected || !body.trim()) return;
+    stage({
+      id: `c${Date.now()}_${staged.length}`,
+      file: selected,
+      line: anchor.line,
+      side: anchor.side,
+      code: anchor.code,
+      body: body.trim(),
+    });
+    onClose();
+  };
+  return (
+    <div className="m-1.5 rounded-lg border border-accent bg-canvas p-2.5">
+      <div className="mb-1.5 font-mono text-[11.5px] text-dim">
+        💬 {selected}:{anchor.line} <span className="text-[10px]">({anchor.side} side)</span>
+      </div>
+      <textarea
+        autoFocus
+        value={body}
+        onChange={(e) => setBody(e.target.value)}
+        onKeyDown={(e) => {
+          if ((e.metaKey || e.ctrlKey) && e.key === "Enter") submit();
+          else if (e.key === "Escape") onClose();
+        }}
+        placeholder="Comment on this line — ⌘/Ctrl+Enter to add"
+        className="min-h-[56px] w-full resize-y rounded-md border border-line p-2 font-sans text-[13px]"
+      />
+      <div className="mt-1.5 flex gap-2">
+        <button onClick={submit} className="rounded-md border border-line px-2.5 py-1 hover:bg-panel2">
+          Add comment
+        </button>
+        <button onClick={onClose} className="rounded-md border border-line px-2.5 py-1 hover:bg-panel2">
+          Cancel
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function StagedNote({ body, id }: { body: string; id: string }) {
+  const { unstage } = useStore();
+  return (
+    <div className="mx-2.5 mb-1.5 flex items-center gap-2 rounded-r-md border-l-[3px] border-star bg-[#fffaf0] px-2.5 py-1.5 font-sans">
+      <span>💬 {body}</span>
+      <button onClick={() => unstage(id)} className="ml-auto text-base leading-none text-dim hover:text-del" title="remove">
+        ×
+      </button>
+    </div>
+  );
+}

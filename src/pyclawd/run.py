@@ -125,6 +125,27 @@ def python(args: list[str]) -> int:
     return run([*python_prefix(), *args])
 
 
+def has_xdist(project: Project | None = None) -> bool:
+    """True if ``pytest-xdist`` is importable in the project's Python env.
+
+    Probed in a subprocess against :func:`python_prefix` because the project
+    interpreter may differ from the one running pyclawd. Callers use this to inject
+    ``-n`` only when xdist is present: a missing plugin must degrade to a serial run
+    (pyclawd's "commands degrade, never crash" contract), not hard-fail pytest with
+    ``error: unrecognized arguments: -n``.
+    """
+    try:
+        return (
+            subprocess.run(
+                [*python_prefix(project), "-c", "import xdist"],
+                capture_output=True,
+            ).returncode
+            == 0
+        )
+    except OSError:
+        return False
+
+
 #: pytest options whose *following token* is a value (an expression, not a target).
 _VALUE_OPTS = {"-k", "-m", "-p", "-c", "--rootdir", "--junit-xml", "-n", "--durations"}
 

@@ -1,7 +1,7 @@
 ---
 name: pyclawd
-description: Start-here overview AND the doctrine index for working in a pyclawd project — the router over the focused references and the standalone golden/doctor/upgrade/adopt skills. pyclawd is a config-driven dev-task CLI where one file (.pyclawd/config.py) describes the project and `pyclawd <verb>` is the single contract for every task (run code, test, lint/format/typecheck, docs, health-check). Read this to orient, understand the mental model, or pick which deep reference to open. It routes; it does not duplicate AGENTS.md's command tables or the situational golden/doctor/upgrade/adopt skills.
-when_to_use: Orienting in a pyclawd repo, understanding the mental model, or deciding which doctrine reference (mental-model / tests / quality / docs / packaging) or standalone skill to consult before starting work. The router, not a magnet for every situation.
+description: Start-here overview AND the doctrine index for working in a pyclawd project — the router over the focused references and the standalone golden/doctor/upgrade/adopt skills. pyclawd is a config-driven dev-task CLI where one file (.pyclawd/config.py) describes the project and `pyclawd <verb>` is the single contract for every task (navigate/orient via the code map, run code, test, lint/format/typecheck, docs, health-check). Read this to orient (start with `pyclawd ls` to map the repo), understand the mental model, or pick which deep reference to open. It routes; it does not duplicate AGENTS.md's command tables or the situational golden/doctor/upgrade/adopt skills.
+when_to_use: Orienting in a pyclawd repo (run `pyclawd ls` first to read the file→description code map before touching code), understanding the mental model, or deciding which doctrine reference (mental-model / tests / quality / docs / packaging) or standalone skill to consult before starting work. The router, not a magnet for every situation.
 ---
 
 # pyclawd — orient + doctrine index
@@ -17,6 +17,13 @@ Two ideas carry everything:
 - **The tools are the opinion.** *Which* linter / type checker / test runner / build
   backend a verb runs is named in `.pyclawd/config.py` — swap a tool by editing one
   field; the verb stays identical.
+
+**First, orient.** Landing in a pyclawd repo (or before reimplementing any helper),
+run `pyclawd ls` — it prints the **code map**, every source file with its one-line
+description, so you learn where things live without opening each file. `pyclawd ls
+src/sub/` scopes to a subtree; `pyclawd ls --py` filters to Python. This is the
+cheapest way to avoid the most common agent failure — reinventing a utility that
+already exists one directory over.
 
 **Two non-negotiables to remember now:** always run Python via `pyclawd python`
 (never bare `python`); and `.pyclawd/config.py` (or `pyclawd config`) is the source

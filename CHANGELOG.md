@@ -12,6 +12,16 @@ the running pyclawd has a different `major.minor`, pointing here for what change
 ## [Unreleased]
 
 ### Added
+- **`pyclawd web`** — an optional live, multi-project **diff & review dashboard**
+  (`pip install 'pyclawd[web]'`, then `pyclawd web serve`). Watch changes across all
+  your repos while agents work, compare any two refs (working tree ↔ branch/tag/SHA)
+  in inline/split/full views, stage line comments and send them straight into a
+  running `claude` tmux pane. The core install stays `typer`+`rich`: the web stack
+  (FastAPI/uvicorn/watchfiles) is an extra, and the React frontend is **prebuilt
+  into the wheel** so end users never need Node. Live updates use SSE backed by a
+  filesystem watch (no polling), with a content-aware change token that reacts even
+  to repeated edits of one already-modified file. Manage the project set with
+  `pyclawd web add/list/remove`.
 - **`PYCLAWD_DISCOVERY`** — an `os.pathsep`-separated search path of config
   directories for walk-up discovery (default: `.pyclawd`). Setting
   `".local/.pyclawd:.pyclawd"` lets a project keep its config **uncommitted** at

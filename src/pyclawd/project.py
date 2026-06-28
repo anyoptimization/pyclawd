@@ -155,8 +155,10 @@ class TestConfig:
         jobs: pytest-xdist worker count applied to the logged tiers (``run`` / ``fast`` /
             ``all`` and the ``check`` test step). ``"auto"`` (the default) runs every
             tier in parallel across all cores; ``""`` runs serial; an integer string
-            (e.g. ``"4"``) pins the worker count. Requires ``pytest-xdist`` (in the
-            scaffold's dev group). An explicit ``-n`` in the command always wins.
+            (e.g. ``"4"``) pins the worker count. Needs ``pytest-xdist`` (in the
+            scaffold's dev group); if it is not installed the run degrades to serial
+            with a WARN rather than crashing pytest. An explicit ``-n`` in the command
+            always wins.
     """
 
     tests_dir: str

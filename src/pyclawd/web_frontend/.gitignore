@@ -1,0 +1,5 @@
+# Frontend build tooling — never committed. The BUILT assets live in
+# ../web/static (also gitignored there) and are produced by `npm run build`.
+node_modules/
+.vite/
+*.tsbuildinfo

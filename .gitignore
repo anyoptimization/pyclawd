@@ -222,3 +222,8 @@ __marimo__/
 
 # Claude Code agent worktrees (transient — never commit)
 .claude/worktrees/
+
+# pyclawd web — built frontend assets (produced by `npm run build` in
+# src/pyclawd/web_frontend; shipped into the wheel via hatch artifacts, not git).
+src/pyclawd/web/static/
+src/pyclawd/web_frontend/node_modules/

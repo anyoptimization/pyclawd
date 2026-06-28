@@ -112,24 +112,35 @@ Every pyclawd command is non-interactive when stdin is not a TTY. Pass `--yes` /
 `git commit --no-verify` is banned. A blocked pre-commit hook means something is
 wrong — fix the underlying issue. Bypassing hooks defeats the quality system.
 
-## The code map prevents duplicate divergence
+## `pyclawd ls` — orient first, with the code map
 
-The most common structural damage in agent-coded repos is the same helper
-reimplemented slightly differently in every session. Before implementing any
-utility, check the code map:
+`pyclawd ls` is the **first thing to run when you land in a pyclawd repo**, and
+again before you implement any helper. It prints the **code map**: every source
+file with its one-line description, so you learn where things live — and whether
+the thing you're about to write already exists — without opening a single file.
 
 ```bash
-pyclawd ls              # scan the whole src_dir: file → one-line description
-pyclawd ls src/utils/   # scope to a subdirectory
+pyclawd ls              # the whole src_dir: file → one-line description
+pyclawd ls src/utils/   # scope to a subtree
+pyclawd ls --py         # Python files only
+pyclawd ls --missing    # files lacking a one-liner (exploratory; see below)
 ```
 
-If a utility already exists, use it.
+Two reasons it earns being a reflex, not an afterthought:
+
+- **Orientation.** One command gives you the shape of the repo. Reach for it before
+  grepping around or reading files top-to-bottom — the map points you at the right
+  file directly.
+- **It prevents duplicate divergence.** The most common structural damage in
+  agent-coded repos is the same helper reimplemented slightly differently every
+  session. Scan the map before adding a utility; if it already exists, use it.
 
 ### One-line descriptions + DescriptionConfig
 
-**Every module** opens with a one-line top-of-file description — a module
-docstring's first line for `.py` (PEP 257), else a leading `#` comment. `pyclawd
-ls` builds the code map from these.
+The map is only as good as the descriptions it reads. **Every module** opens with a
+one-line top-of-file description — a module docstring's first line for `.py` (PEP
+257), else a leading `#` comment. `pyclawd ls` builds the code map from these, which
+is *why* the `descriptions` gate (below) keeps them present and accurate.
 
 The **enforced gate** is the `descriptions` step of `pyclawd check`, which checks
 every file matched by `DescriptionConfig` in `.pyclawd/config.py`:

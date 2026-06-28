@@ -55,6 +55,13 @@ dev = ["pytest>=8", "pytest-xdist>=3", "ruff>=0.6", "mypy>=1.10", "numpy>=1.24"]
 
 [project.optional-dependencies]
 dev = ["pytest>=8", "pytest-xdist>=3", "ruff>=0.6", "mypy>=1.10", "numpy>=1.24"]
+# The `pyclawd web` dashboard (optional). Keeping these out of the base install
+# means `pip install pyclawd` stays a tiny typer+rich CLI; only users who want the
+# web UI pull in FastAPI/uvicorn/watchfiles. The built frontend assets are shipped
+# inside the wheel, so end users never need Node — see the wheel force-include below.
+web = ["fastapi>=0.110", "uvicorn[standard]>=0.29", "watchfiles>=0.21"]
+# httpx is needed by FastAPI's TestClient to exercise the web app in the suite.
+web-test = ["httpx>=0.27"]
 
 [tool.hatch.version]
 path = "src/pyclawd/__init__.py"
@@ -62,6 +69,11 @@ path = "src/pyclawd/__init__.py"
 [tool.hatch.build.targets.wheel]
 packages = ["src/pyclawd"]
 include = ["src/pyclawd/py.typed"]  # PEP 561 — ship the typed marker (we're a typed lib)
+# Ship the BUILT web frontend (gitignored, so listed as an artifact to override VCS
+# exclusion) and keep its SOURCE (the Vite/React project) OUT of the wheel — only
+# `pyclawd[web]` users need the static bundle, nobody needs the TS sources or Node.
+artifacts = ["src/pyclawd/web/static/**"]
+exclude = ["src/pyclawd/web_frontend"]
 
 # Ship the CHANGELOG inside the wheel so `pyclawd changelog` works from any
 # pip-installed pyclawd (PyPI included) — the agent-driven upgrade flow reads it to

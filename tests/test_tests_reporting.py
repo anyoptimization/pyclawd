@@ -265,3 +265,61 @@ def test_distinct_roots_get_distinct_log_dirs(tmp_path: Path) -> None:
     assert _junit_ptr(a) != _junit_ptr(b)
     # The namespaced dir ends with the root's hash slug.
     assert _log_dir(a).name == _root_hash(tmp_path / "a")
+
+
+# --------------------------------------------------------------------------- #
+# run_suite — `-n` (xdist) injection degrades gracefully when xdist is absent.
+# --------------------------------------------------------------------------- #
+
+
+def _capture_run_suite_cmd(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, *, xdist: bool, jobs: str | None
+) -> list[str]:
+    """Run :func:`run_suite` with all subprocess work stubbed, return the pytest argv.
+
+    ``tee`` is replaced with a capturing stub (no real pytest run) and ``has_xdist``
+    is pinned to *xdist* so the test never depends on the host's installed plugins.
+    """
+    from pyclawd import tests as tests_mod
+
+    project = _project(tmp_path)
+    captured: list[str] = []
+
+    def fake_tee(cmd, log, root):  # type: ignore[no-untyped-def]
+        captured.extend(str(c) for c in cmd)
+        return 0
+
+    monkeypatch.setattr(tests_mod, "repo_root_or_exit", lambda: tmp_path)
+    monkeypatch.setattr(tests_mod, "python_prefix", lambda _p: ["python"])
+    monkeypatch.setattr(tests_mod, "has_xdist", lambda _p: xdist)
+    monkeypatch.setattr(tests_mod, "tee", fake_tee)
+    rc = tests_mod.run_suite([], "not slow", "run", project, jobs=jobs)
+    assert rc == 0
+    return captured
+
+
+def test_run_suite_injects_n_when_xdist_present(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """With xdist importable, ``-n <jobs>`` is added to the pytest command."""
+    cmd = _capture_run_suite_cmd(tmp_path, monkeypatch, xdist=True, jobs="auto")
+    assert "-n" in cmd
+    assert cmd[cmd.index("-n") + 1] == "auto"
+
+
+def test_run_suite_degrades_to_serial_when_xdist_absent(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Missing xdist must NOT inject ``-n`` (which would crash pytest) — warn and run serial."""
+    cmd = _capture_run_suite_cmd(tmp_path, monkeypatch, xdist=False, jobs="auto")
+    assert "-n" not in cmd
+    assert "pytest-xdist not installed" in capsys.readouterr().out
+
+
+def test_run_suite_serial_jobs_never_probes_or_injects(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """``jobs=""`` (serial by config) injects nothing and emits no xdist warning."""
+    cmd = _capture_run_suite_cmd(tmp_path, monkeypatch, xdist=False, jobs="")
+    assert "-n" not in cmd
+    assert "pytest-xdist" not in capsys.readouterr().out

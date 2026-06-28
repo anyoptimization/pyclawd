@@ -29,7 +29,14 @@ from pathlib import Path
 
 from .logs import category_dir, run_id, tee
 from .project import Project
-from .run import has_target, load_project_or_exit, python_prefix, repo_root_or_exit, run
+from .run import (
+    has_target,
+    has_xdist,
+    load_project_or_exit,
+    python_prefix,
+    repo_root_or_exit,
+    run,
+)
 
 
 def _root_hash(root: Path) -> str:
@@ -163,7 +170,17 @@ def run_suite(
     if not has_target(extra_args):
         cmd.append(project.test.tests_dir)
     if jobs and "-n" not in extra_args:  # explicit -n in the caller's args wins
-        cmd += ["-n", jobs]
+        # Only parallelize when pytest-xdist is actually importable — otherwise
+        # `-n` makes pytest hard-fail with "unrecognized arguments: -n". A missing
+        # plugin degrades to a serial run with a one-line WARN, never a crash.
+        if has_xdist(project):
+            cmd += ["-n", jobs]
+        else:
+            print(
+                "⚠ pytest-xdist not installed — running serial. "
+                'Install it (`pip install pytest-xdist`) or set TestConfig.jobs="" '
+                "to silence this warning."
+            )
     if "-m" not in extra_args and markers:
         cmd += ["-m", markers]
     cmd += extra_args

@@ -66,6 +66,7 @@ pyclawd check           # the full quality gate
 | Docs (if configured) | `pyclawd docs build\|run\|render\|serve\|status\|failures\|exec <page>` |
 | Scaffold / adopt | `pyclawd new <name>` · `pyclawd new` (adopt: detects layout + Phase-0 readiness) · `pyclawd new --scaffold-pyproject` |
 | Code map (file → description) | `pyclawd ls [DIR]` · `pyclawd ls --missing` · `pyclawd ls --py` |
+| Web diff/review dashboard (extra) | `pyclawd web serve` (needs `pip install 'pyclawd[web]'`) |
 | Repo root / version | `pyclawd root` · `pyclawd version` |
 
 `pyclawd check` runs the quality steps **format-check → lint → typecheck regardless of individual failures** (so you see the full picture in one shot), then runs **test** only if quality passed — with a per-step ✓/✗ summary, the CI-parity "am I done?" gate. Add `--fail-fast` to stop at the first failure, `--fix` to autofix format+lint, `--skip <verb>` to omit a step. Commands for build, dist, and docs only do work when the project configures them; otherwise they degrade gracefully. Override config discovery with `--config PATH` or `PYCLAWD_CONFIG`; by default pyclawd walks up from the cwd to find `.pyclawd/config.py`.
@@ -135,6 +136,24 @@ Copy whichever is closer and delete what you don't use.
 ## Skills
 
 pyclawd ships agent-facing slash-command skills under [`skills/`](skills/): the start-here umbrella `pyclawd` router skill (a lean overview plus on-demand `references/{mental-model,tests,quality,docs,packaging}.md` carrying the testing/quality/docs/packaging doctrine) plus the four focused standalone skills `pyclawd-adopt` (adopt pyclawd into an existing repo — red-to-green with zero behavior regression), `pyclawd-golden`, `pyclawd-doctor`, and `pyclawd-upgrade` (migrate *after* a pyclawd version bump — the upgrade counterpart to first-time adoption). They are thin wrappers over the CLI. `pyclawd skills install` copies (or symlinks) the `pyclawd-*` directories into your **user-scope** `~/.claude/skills/` by default — they are generic, so they are shared across every project rather than committed per-repo — see [`skills/README.md`](skills/README.md). Agent doctrine for any pyclawd project lives in [`AGENTS.md`](AGENTS.md).
+
+## Web dashboard (optional)
+
+`pyclawd web` is a live, multi-project **diff & review dashboard** — built for watching
+agents work across all your repos. Install the extra and serve it:
+
+```bash
+pip install 'pyclawd[web]'    # FastAPI + uvicorn + watchfiles (frontend prebuilt in the wheel)
+pyclawd web serve             # http://127.0.0.1:8801 — auto-discovers repos under ~/workspace
+```
+
+It switches between projects, compares any two refs (working tree ↔ branch/tag/SHA) in
+inline / split / full views, refreshes live over SSE as files change, and lets you stage
+line comments and send them straight into a running `claude` tmux pane. The core
+`pip install pyclawd` stays a tiny `typer`+`rich` CLI — the web stack is an extra, and the
+React frontend is shipped prebuilt so **end users never need Node**. The frontend source
+lives in [`src/pyclawd/web_frontend/`](src/pyclawd/web_frontend/) (Vite + React + Tailwind +
+shadcn/ui); `npm run build` there emits into the wheel-shipped `src/pyclawd/web/static/`.
 
 ## Status
 
