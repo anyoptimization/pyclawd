@@ -11,7 +11,18 @@ the running pyclawd has a different `major.minor`, pointing here for what change
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-06-28
+
 ### Added
+- **`pyclawd docs validate`** + an automatic guardrail in `pyclawd docs build` —
+  fail the build when a notebook that executed *with* output renders to HTML
+  *without* it (the empty-page failure mode, where `nbsphinx_execute='never'`
+  renders whatever output state is on disk and a render that races ahead of
+  hydration ships blank cells). Compares each executed `.ipynb` under
+  `docs.source_dir` against its rendered page under `docs.build_html`; false-
+  positive resistant (output-free pages assert nothing) and skips pages not
+  rendered in the run (`--changed`). `docs validate` runs the same check against
+  an already-built tree, for use as a standalone pre-deploy gate.
 - **`pyclawd web`** — an optional live, multi-project **diff & review dashboard**
   (`pip install 'pyclawd[web]'`, then `pyclawd web serve`). Watch changes across all
   your repos while agents work, compare any two refs (working tree ↔ branch/tag/SHA)
