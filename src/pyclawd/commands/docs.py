@@ -77,6 +77,63 @@ def _preflight_render() -> None:
         raise typer.Exit(3)
 
 
+def _validate_outputs(project) -> int:
+    """Fail if a notebook that executed WITH output rendered to HTML WITHOUT it.
+
+    This is the empty-page failure mode where the Sphinx render races ahead of
+    notebook hydration and ships blank cells (``nbsphinx_execute='never'`` renders
+    whatever output state is on disk).
+
+    For every executed ``.ipynb`` under ``docs.source_dir`` that produced ≥1
+    output cell, the matching rendered page under ``docs.build_html`` must contain
+    an nbsphinx output block (``nboutput``). This is false-positive resistant:
+    a legitimately output-free page has no outputs in its ``.ipynb`` either, so
+    nothing is asserted of it. Pages not rendered in this run (no HTML on disk,
+    e.g. a ``--changed`` build) are skipped. Returns the offender count.
+    """
+    source = project.path(project.docs.source_dir)
+    html_root = project.path(project.docs.build_html)
+    offenders: list[tuple[Path, int]] = []
+    checked = 0
+    for ipynb in sorted(source.rglob("*.ipynb")):
+        try:
+            nb = json.loads(ipynb.read_text())
+        except Exception:
+            continue
+        n_out = sum(
+            len(c.get("outputs", [])) for c in nb.get("cells", []) if c.get("cell_type") == "code"
+        )
+        if n_out == 0:
+            continue  # legitimately output-free → assert nothing
+        rel = ipynb.relative_to(source).with_suffix(".html")
+        html = html_root / rel
+        if not html.exists():
+            continue  # not rendered in this run (e.g. --changed) → skip
+        checked += 1
+        if "nboutput" not in html.read_text(errors="ignore"):
+            offenders.append((rel, n_out))
+    if offenders:
+        typer.secho(
+            "✗ docs output guardrail FAILED — executed pages rendered blank:",
+            fg="red",
+            err=True,
+        )
+        for rel, n in offenders:
+            typer.secho(
+                f"    {rel}  (executed with {n} output(s), HTML has none)",
+                fg="red",
+                err=True,
+            )
+        typer.secho(
+            "  Likely a hydration race — re-execute the page(s) then re-render.",
+            fg="yellow",
+            err=True,
+        )
+    else:
+        typer.echo(f"✓ output guardrail: {checked} page(s) with outputs rendered non-empty")
+    return len(offenders)
+
+
 def _changed_docs(project) -> list[str]:
     """Source `.md` pages changed vs the docs branch, relative to the docs dir.
 
@@ -154,7 +211,23 @@ def docs_build(
     else:
         code = _docs_run(project, ["all", *cflag], log)
 
+    # Guardrail: a render that dropped executed outputs must fail the build —
+    # catches the empty-page race (HTML rendered before notebooks were hydrated).
+    if code == 0 and _validate_outputs(project):
+        code = 1
+
     logs.run_finish(run_id, log, code, t0)
+
+
+@docs_app.command("validate")
+def docs_validate() -> None:
+    """Fail if any executed notebook rendered to blank HTML (the empty-page guardrail).
+
+    Runs against the already-built HTML — use it as a standalone gate before
+    deploying docs (e.g. in a CI deploy workflow) without re-running the build.
+    """
+    project = _docs_project_or_exit()
+    raise typer.Exit(1 if _validate_outputs(project) else 0)
 
 
 @docs_app.command("run", context_settings=_PASSTHROUGH)

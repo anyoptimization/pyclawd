@@ -175,3 +175,60 @@ def test_docs_serve_requires_a_build(monkeypatch, tmp_path, capsys):
 def test_lan_ip_returns_str_or_none():
     ip = docs_cmd._lan_ip()
     assert ip is None or isinstance(ip, str)
+
+
+# ---- output guardrail (validate) --------------------------------------------
+
+
+def _write_ipynb(path: Path, n_outputs: int) -> None:
+    """Write a minimal notebook with one code cell carrying *n_outputs* outputs."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    cell = {
+        "cell_type": "code",
+        "source": ["1 + 1"],
+        "outputs": [{"output_type": "execute_result"} for _ in range(n_outputs)],
+    }
+    path.write_text(json.dumps({"cells": [cell]}))
+
+
+def _write_html(path: Path, *, with_output: bool) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    body = "<div class='nbinput'>code</div>"
+    if with_output:
+        body += "<div class='nboutput'>result</div>"
+    path.write_text(f"<html>{body}</html>")
+
+
+def test_validate_outputs_passes_when_outputs_rendered(tmp_path):
+    project = _project(tmp_path)
+    src = project.path(project.docs.source_dir)
+    html = project.path(project.docs.build_html)
+    _write_ipynb(src / "algorithms" / "page.ipynb", n_outputs=3)
+    _write_html(html / "algorithms" / "page.html", with_output=True)
+    assert docs_cmd._validate_outputs(project) == 0
+
+
+def test_validate_outputs_flags_executed_but_blank_page(tmp_path, capsys):
+    project = _project(tmp_path)
+    src = project.path(project.docs.source_dir)
+    html = project.path(project.docs.build_html)
+    _write_ipynb(src / "algorithms" / "page.ipynb", n_outputs=4)
+    _write_html(html / "algorithms" / "page.html", with_output=False)  # the incident
+    assert docs_cmd._validate_outputs(project) == 1
+    assert "rendered blank" in capsys.readouterr().err
+
+
+def test_validate_outputs_ignores_output_free_page(tmp_path):
+    project = _project(tmp_path)
+    src = project.path(project.docs.source_dir)
+    html = project.path(project.docs.build_html)
+    _write_ipynb(src / "intro.ipynb", n_outputs=0)  # legitimately output-free
+    _write_html(html / "intro.html", with_output=False)
+    assert docs_cmd._validate_outputs(project) == 0
+
+
+def test_validate_outputs_skips_unrendered_pages(tmp_path):
+    project = _project(tmp_path)
+    src = project.path(project.docs.source_dir)
+    _write_ipynb(src / "only_executed.ipynb", n_outputs=2)  # no HTML rendered (e.g. --changed)
+    assert docs_cmd._validate_outputs(project) == 0
