@@ -166,3 +166,12 @@ follow_imports_for_stubs = true
 [[tool.mypy.overrides]]
 module = ["jupyter_cache.*", "nbformat", "nbformat.*"]
 ignore_missing_imports = true
+
+# fastapi + pydantic + uvicorn + watchfiles are optional `[web]` deps (the
+# `pyclawd web` dashboard, in src/pyclawd/web + commands/web.py). They are NOT in
+# `[dev]`, so the CI `check` job — which installs only `.[dev]` — can't resolve them;
+# mypy then fails on the web modules. Same rationale and scoping as the docs override
+# above: allow missing imports for exactly these, so all other imports still error.
+[[tool.mypy.overrides]]
+module = ["fastapi", "fastapi.*", "pydantic", "uvicorn", "watchfiles"]
+ignore_missing_imports = true
