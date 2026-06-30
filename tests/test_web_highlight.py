@@ -41,7 +41,7 @@ def test_keywords_get_token_spans() -> None:
 
 
 def test_multiline_docstring_coloured_on_every_line() -> None:
-    src = ['def f():', '    """Doc.', "", "    more.", '    """', "    return 1"]
+    src = ["def f():", '    """Doc.', "", "    more.", '    """', "    return 1"]
     out = highlight_lines("m.py", src)
     assert out is not None
     # Each non-blank docstring line carries the string-doc class, not just the first.
