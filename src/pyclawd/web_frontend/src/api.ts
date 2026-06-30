@@ -92,7 +92,7 @@ export const api = {
 
 /** One streamed progress frame from the agent or the verb runner. */
 export interface StreamEvent {
-  kind: "log" | "text" | "tool" | "result" | "out" | "done" | "error";
+  kind: "log" | "text" | "tool" | "result" | "out" | "done" | "error" | "session" | "user";
   text: string;
 }
 
@@ -134,14 +134,34 @@ async function streamSSE(
   }
 }
 
-/** Dispatch a headless `claude -p` agent and stream its progress (abort to stop it). */
+/** Options for an agent run / chat turn. */
+export interface AgentRunOpts {
+  project: string;
+  prompt: string;
+  fullAccess: boolean;
+  model?: string;
+  /** A session id to continue (turns the one-shot run into an interactive chat). */
+  resume?: string;
+}
+
+/** Dispatch a headless `claude -p` agent (or a follow-up turn) and stream its progress. */
 export const streamAgent = (
-  project: string,
-  prompt: string,
-  fullAccess: boolean,
+  opts: AgentRunOpts,
   onEvent: (event: StreamEvent) => void,
   signal?: AbortSignal,
-) => streamSSE("/api/agent/run", { project, prompt, full_access: fullAccess }, onEvent, signal);
+) =>
+  streamSSE(
+    "/api/agent/run",
+    {
+      project: opts.project,
+      prompt: opts.prompt,
+      full_access: opts.fullAccess,
+      model: opts.model,
+      resume: opts.resume,
+    },
+    onEvent,
+    signal,
+  );
 
 /** Run a pyclawd verb in the project and stream its output (abort to stop it). */
 export const streamRun = (

@@ -25,6 +25,8 @@ export interface DiffLine {
   old: number | null;
   new: number | null;
   content: string;
+  /** Syntax-highlighted HTML for `content` (Pygments); null → render plain text. */
+  html?: string | null;
 }
 
 export interface Hunk {

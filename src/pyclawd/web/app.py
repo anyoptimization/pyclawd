@@ -26,8 +26,7 @@ from collections.abc import AsyncIterator
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import StreamingResponse
-from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel
 
 from .git import WORKING_TREE, GitRepo, Ref
@@ -91,12 +90,16 @@ class AgentBody(BaseModel):
 
     ``full_access`` chooses the permission mode: ``True`` lets the agent run commands
     as well as edit files (``bypassPermissions``); ``False`` is edits-only
-    (``acceptEdits``) — safer, but it can't run shell commands.
+    (``acceptEdits``) — safer, but it can't run shell commands. ``model`` is a CLI
+    model alias (``sonnet``/``opus``/``haiku``); ``resume`` continues an existing
+    ``claude`` session by id, turning the one-shot run into an interactive chat.
     """
 
     project: str
     prompt: str
     full_access: bool = False
+    model: str | None = None
+    resume: str | None = None
 
 
 #: The pyclawd verbs the dashboard can launch, mapped to their argv. An allowlist —
@@ -275,7 +278,7 @@ def create_app(default_project: str | None = None, registry: Registry | None = N
         if shutil.which("claude") is None:
             raise HTTPException(status_code=400, detail="the 'claude' CLI is not on PATH")
         return StreamingResponse(
-            _agent_stream(Path(path), body.prompt, body.full_access),
+            _agent_stream(Path(path), body.prompt, body.full_access, body.model, body.resume),
             media_type="text/event-stream",
         )
 
@@ -317,9 +320,31 @@ def create_app(default_project: str | None = None, registry: Registry | None = N
         return {"ok": True, "roots": reg.set_roots(body.roots)}
 
     # -- static SPA (only when built) -------------------------------------- #
+    #
+    # The frontend routes the active project in the URL *path* (``/<project>``) so a
+    # reload — or a shared link — lands back in the same project, with that project's
+    # view state restored from localStorage. That means any non-API path must serve
+    # the SPA shell (``index.html``) rather than 404, while still serving the real
+    # built assets (``/assets/…``, ``favicon`` …) straight from disk. A single
+    # catch-all does both: existing file → that file; anything else → ``index.html``.
 
     if _STATIC_DIR.is_dir():
-        app.mount("/", StaticFiles(directory=str(_STATIC_DIR), html=True), name="spa")
+        index_html = _STATIC_DIR / "index.html"
+
+        @app.get("/{full_path:path}")
+        def spa(full_path: str) -> FileResponse:
+            """Serve a built asset if it exists, else the SPA shell (client routing)."""
+            if full_path.startswith("api/"):
+                # An unmatched /api/* path is a genuine miss, not a client route.
+                raise HTTPException(status_code=404, detail="not found")
+            candidate = (_STATIC_DIR / full_path).resolve()
+            if (
+                full_path
+                and candidate.is_file()
+                and candidate.is_relative_to(_STATIC_DIR.resolve())
+            ):
+                return FileResponse(str(candidate))
+            return FileResponse(str(index_html))
 
     return app
 
@@ -400,7 +425,13 @@ def _summarise_agent_json(line: str) -> list[tuple[str, str]]:
     etype = event.get("type")
     if etype == "system" and event.get("subtype") == "init":
         model = event.get("model", "")
-        return [("log", f"● session started{f' ({model})' if model else ''}")]
+        init_frames: list[tuple[str, str]] = [
+            ("log", f"● session started{f' ({model})' if model else ''}")
+        ]
+        if sid := event.get("session_id"):
+            # Hand the session id to the client so it can resume (continue the chat).
+            init_frames.append(("session", sid))
+        return init_frames
     if etype == "assistant":
         frames: list[tuple[str, str]] = []
         for block in event.get("message", {}).get("content", []):
@@ -423,30 +454,34 @@ def _summarise_agent_json(line: str) -> list[tuple[str, str]]:
     return []
 
 
-async def _agent_stream(cwd: Path, prompt: str, full_access: bool) -> AsyncIterator[str]:
+async def _agent_stream(
+    cwd: Path,
+    prompt: str,
+    full_access: bool,
+    model: str | None = None,
+    resume: str | None = None,
+) -> AsyncIterator[str]:
     """Run ``claude -p`` headless in *cwd* and stream a readable progress log over SSE.
 
     With *full_access* the agent runs under ``bypassPermissions`` (edits files AND
     runs commands unattended); otherwise ``acceptEdits`` (edits only — safer, but it
-    cannot run shell commands). Structured ``stream-json`` events are distilled to
-    readable frames; a final ``done`` frame carries the exit code.
+    cannot run shell commands). *model* picks a CLI model alias; *resume* continues an
+    existing session id (a follow-up chat turn). Structured ``stream-json`` events are
+    distilled to readable frames; a final ``done`` frame carries the exit code.
     """
     mode = "bypassPermissions" if full_access else "acceptEdits"
+    argv = ["-p", prompt, "--output-format", "stream-json", "--verbose", "--permission-mode", mode]
+    if model:
+        argv += ["--model", model]
+    if resume:
+        argv += ["--resume", resume]
     proc = await asyncio.create_subprocess_exec(
         "claude",
-        "-p",
-        prompt,
-        "--output-format",
-        "stream-json",
-        "--verbose",
-        "--permission-mode",
-        mode,
+        *argv,
         cwd=str(cwd),
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.STDOUT,
     )
-    access = "full access" if full_access else "edits only"
-    yield _agent_event("log", f"$ claude -p (headless · {access}) in {cwd.name}")
     try:
         assert proc.stdout is not None
         async for raw in proc.stdout:

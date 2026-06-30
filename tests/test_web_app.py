@@ -85,6 +85,22 @@ def test_unknown_project_is_404(client: TestClient) -> None:
     assert client.get("/api/changes", params={"project": "ghost"}).status_code == 404
 
 
+def test_spa_serves_shell_for_project_path(client: TestClient) -> None:
+    # ``/<project>`` (and any non-API client route) must serve the SPA shell so a
+    # reload or shared link lands back in the app, not on a 404.
+    r = client.get("/demo")
+    assert r.status_code == 200
+    assert "text/html" in r.headers["content-type"]
+    deep = client.get("/some/deep/client/route")
+    assert deep.status_code == 200
+    assert "text/html" in deep.headers["content-type"]
+
+
+def test_spa_does_not_mask_unknown_api(client: TestClient) -> None:
+    # An unmatched /api/* path stays a real 404 rather than returning the shell.
+    assert client.get("/api/does-not-exist").status_code == 404
+
+
 def test_refs_and_files(client: TestClient) -> None:
     refs = client.get("/api/refs", params={"project": "demo"}).json()
     assert refs["current"] in {"main", "master"}

@@ -15,6 +15,7 @@ interface PerProject {
   mode: DiffMode;
   layout: DiffLayout;
   all: boolean;
+  selected: string | null;
 }
 
 interface Persisted {
@@ -38,6 +39,7 @@ const DEFAULTS: PerProject = {
   mode: "diff",
   layout: "inline",
   all: false,
+  selected: null,
 };
 
 const SETTINGS_DEFAULTS: Settings = { tabWidth: 4, sendSubmit: false, sendFocus: false };
@@ -54,10 +56,11 @@ function load(): Persisted {
 
 interface State extends PerProject {
   project: string | null;
-  selected: string | null;
   session: string | null;
   staged: StagedComment[];
   settings: Settings;
+  /** A pending `"side:line"` anchor the diff view should scroll to (transient). */
+  scrollTo: string | null;
 }
 
 type Action =
@@ -68,8 +71,10 @@ type Action =
   | { type: "setLayout"; value: DiffLayout }
   | { type: "setAll"; value: boolean }
   | { type: "selectFile"; path: string | null }
+  | { type: "scrollTo"; anchor: string | null }
   | { type: "setSession"; target: string | null }
   | { type: "stage"; comment: StagedComment }
+  | { type: "editComment"; id: string; body: string }
   | { type: "unstage"; id: string }
   | { type: "clearStaged" }
   | { type: "setSettings"; value: Partial<Settings> };
@@ -89,6 +94,7 @@ function persist(state: State): void {
             mode: state.mode,
             layout: state.layout,
             all: state.all,
+            selected: state.selected,
           },
         }
       : prev.pp,
@@ -102,12 +108,11 @@ function reducer(state: State, action: Action): State {
   switch (action.type) {
     case "selectProject": {
       const saved = load();
-      const pp = saved.pp[action.name] ?? DEFAULTS;
+      const pp = { ...DEFAULTS, ...saved.pp[action.name] };
       next = {
         ...state,
         ...pp,
         project: action.name,
-        selected: null,
         staged: saved.staged[action.name] ?? [],
       };
       break;
@@ -130,11 +135,20 @@ function reducer(state: State, action: Action): State {
     case "selectFile":
       next = { ...state, selected: action.path };
       break;
+    case "scrollTo":
+      next = { ...state, scrollTo: action.anchor };
+      break;
     case "setSession":
       next = { ...state, session: action.target };
       break;
     case "stage":
       next = { ...state, staged: [...state.staged, action.comment] };
+      break;
+    case "editComment":
+      next = {
+        ...state,
+        staged: state.staged.map((c) => (c.id === action.id ? { ...c, body: action.body } : c)),
+      };
       break;
     case "unstage":
       next = { ...state, staged: state.staged.filter((c) => c.id !== action.id) };
@@ -159,6 +173,7 @@ function initialState(): State {
     session: saved.session,
     staged: [],
     settings: saved.settings,
+    scrollTo: null,
   };
 }
 
@@ -170,8 +185,10 @@ interface Store extends State {
   setLayout: (value: DiffLayout) => void;
   setAll: (value: boolean) => void;
   selectFile: (path: string | null) => void;
+  setScrollTo: (anchor: string | null) => void;
   setSession: (target: string | null) => void;
   stage: (comment: StagedComment) => void;
+  editComment: (id: string, body: string) => void;
   unstage: (id: string) => void;
   clearStaged: () => void;
   setSettings: (value: Partial<Settings>) => void;
@@ -191,8 +208,10 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       setLayout: (value) => dispatch({ type: "setLayout", value }),
       setAll: (value) => dispatch({ type: "setAll", value }),
       selectFile: (path) => dispatch({ type: "selectFile", path }),
+      setScrollTo: (anchor) => dispatch({ type: "scrollTo", anchor }),
       setSession: (target) => dispatch({ type: "setSession", target }),
       stage: (comment) => dispatch({ type: "stage", comment }),
+      editComment: (id, body) => dispatch({ type: "editComment", id, body }),
       unstage: (id) => dispatch({ type: "unstage", id }),
       clearStaged: () => dispatch({ type: "clearStaged" }),
       setSettings: (value) => dispatch({ type: "setSettings", value }),

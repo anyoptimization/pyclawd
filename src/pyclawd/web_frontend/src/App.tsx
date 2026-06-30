@@ -8,7 +8,6 @@ import { Sidebar } from "@/components/Sidebar";
 import { TopBar } from "@/components/TopBar";
 import { useChanges, useDiff, useLiveRefresh, usePersisted, useProjects, useRefs } from "@/hooks";
 import { useStore } from "@/store";
-import type { DiffLayout, DiffMode } from "@/types";
 
 export function App() {
   const store = useStore();
@@ -47,43 +46,27 @@ export function App() {
   );
   useLiveRefresh(store.project, store.base, store.target, live);
 
-  // Bootstrap once projects load: restore from the URL hash if present (deep link),
-  // else select the server's default project. Hash values are applied after
-  // selectProject so a shared link wins over the per-project saved prefs.
+  // Bootstrap once projects load: the active project lives in the URL *path*
+  // (``/<project>``), so a reload or shared link lands back in the same project.
+  // Everything else (refs, mode, layout, selected file) is restored from that
+  // project's localStorage prefs by selectProject — the URL stays clean.
   useEffect(() => {
     if (booted.current || !projects) return;
     booted.current = true;
-    const h = new URLSearchParams(location.hash.slice(1));
-    const hashProject = h.get("project");
+    const pathProject = decodeURIComponent(location.pathname.replace(/^\/+|\/+$/g, ""));
     const initial =
-      hashProject && projects.projects.some((p) => p.name === hashProject)
-        ? hashProject
+      pathProject && projects.projects.some((p) => p.name === pathProject)
+        ? pathProject
         : (projects.default ?? projects.projects[0]?.name);
-    if (!initial) return;
-    store.selectProject(initial);
-    if (h.has("base")) store.setBase(h.get("base")!);
-    if (h.has("target")) store.setTarget(h.get("target")!);
-    if (h.get("mode")) store.setMode(h.get("mode") as DiffMode);
-    if (h.get("layout")) store.setLayout(h.get("layout") as DiffLayout);
-    if (h.get("all")) store.setAll(true);
-    if (h.get("file")) store.selectFile(h.get("file"));
+    if (initial) store.selectProject(initial);
   }, [projects, store]);
 
-  // Keep the URL hash in sync so the current view is a shareable deep link.
+  // Keep the URL path mapped to the active project (clean, shareable, reload-safe).
   useEffect(() => {
     if (!store.project) return;
-    const p = new URLSearchParams({
-      project: store.project,
-      base: store.base,
-      target: store.target,
-      mode: store.mode,
-      layout: store.layout,
-    });
-    if (store.all) p.set("all", "1");
-    if (store.selected) p.set("file", store.selected);
-    const hash = `#${p.toString()}`;
-    if (location.hash !== hash) history.replaceState(null, "", hash);
-  }, [store.project, store.base, store.target, store.mode, store.layout, store.all, store.selected]);
+    const path = `/${encodeURIComponent(store.project)}`;
+    if (location.pathname !== path) history.replaceState(null, "", path);
+  }, [store.project]);
 
   // Apply the tab-width preference to the diff tables via a CSS variable.
   useEffect(() => {

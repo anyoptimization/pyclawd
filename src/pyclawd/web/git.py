@@ -23,7 +23,7 @@ import contextlib
 import hashlib
 import re
 import subprocess
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from enum import Enum
 from pathlib import Path
 from typing import Final
@@ -99,12 +99,15 @@ class DiffLine:
         old: 1-based line number on the old side, or ``None`` for an added line.
         new: 1-based line number on the new side, or ``None`` for a deleted line.
         content: The line's text, without the leading ``+``/``-``/`` `` marker.
+        html: Syntax-highlighted HTML for :attr:`content` (Pygments), or ``None``
+            when the file type is not highlightable — callers render plain text.
     """
 
     kind: LineKind
     old: int | None
     new: int | None
     content: str
+    html: str | None = None
 
 
 @dataclass(frozen=True)
@@ -441,7 +444,7 @@ class GitRepo:
 
         if base_wt and target_wt:
             # Both sides are the working tree — nothing to diff; just show the file.
-            return self._plain_view(path, WORKING_TREE)
+            return self._highlight(self._plain_view(path, WORKING_TREE), WORKING_TREE, WORKING_TREE)
 
         status = self._derive_status(base, target, path)
         diff = self._raw_diff(base, target, path, target_wt)
@@ -449,11 +452,48 @@ class GitRepo:
         if hunks is None:
             return FileView(path=path, status=status, mode=mode, binary=True)
         if not hunks:
-            return self._plain_view(path, new_ref)
+            return self._highlight(self._plain_view(path, new_ref), old_ref, new_ref)
 
         if mode == "full":
-            return self._full_view(path, status, hunks, old_ref, new_ref)
-        return FileView(path=path, status=status, mode="diff", hunks=hunks)
+            return self._highlight(
+                self._full_view(path, status, hunks, old_ref, new_ref), old_ref, new_ref
+            )
+        view = FileView(path=path, status=status, mode="diff", hunks=hunks)
+        return self._highlight(view, old_ref, new_ref)
+
+    def _highlight(self, view: FileView, old_ref: Ref | None, new_ref: Ref | None) -> FileView:
+        """Attach Pygments HTML to every diff line, using full-file lexer context.
+
+        Each line is coloured from the *whole-file* highlight of the side it lives
+        on (deletions from the old side, additions/context from the new), so
+        multi-line constructs like docstrings render correctly on every line.
+        Returns *view* unchanged when the file type is not highlightable.
+        """
+        if view.binary:
+            return view
+        from .highlight import highlight_lines
+
+        old_html = highlight_lines(view.path, self._read_side(old_ref, view.path))
+        new_html = highlight_lines(view.path, self._read_side(new_ref, view.path))
+        if old_html is None and new_html is None:
+            return view
+
+        def hl(line: DiffLine) -> DiffLine:
+            if line.kind is LineKind.DEL and line.old is not None and old_html is not None:
+                src, idx = old_html, line.old - 1
+            elif line.new is not None and new_html is not None:
+                src, idx = new_html, line.new - 1
+            elif line.old is not None and old_html is not None:
+                src, idx = old_html, line.old - 1
+            else:
+                return line
+            return replace(line, html=src[idx]) if 0 <= idx < len(src) else line
+
+        if view.mode == "full":
+            return replace(view, lines=[hl(line) for line in view.lines])
+        return replace(
+            view, hunks=[replace(h, lines=[hl(line) for line in h.lines]) for h in view.hunks]
+        )
 
     def _raw_diff(self, base: Ref, target: Ref | None, path: str, target_wt: bool) -> str:
         """Return raw ``git diff`` text for *path*, handling brand-new untracked files."""

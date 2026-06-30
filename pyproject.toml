@@ -175,3 +175,10 @@ ignore_missing_imports = true
 [[tool.mypy.overrides]]
 module = ["fastapi", "fastapi.*", "pydantic", "uvicorn", "watchfiles"]
 ignore_missing_imports = true
+
+# Pygments ships transitively with rich (a core dep) and powers the web layer's
+# server-side syntax highlighting (src/pyclawd/web/highlight.py), but publishes no
+# type stubs. Scope the missing-import allowance to it alone.
+[[tool.mypy.overrides]]
+module = ["pygments", "pygments.*"]
+ignore_missing_imports = true

@@ -4,10 +4,11 @@
 // affordance and line numbers on BOTH the old (left) and new (right) sides.
 import { useEffect, useRef, useState } from "react";
 
+import { Markdown } from "@/components/Markdown";
 import { usePersisted } from "@/hooks";
 import { statusBadge } from "@/lib/status";
 import { useStore } from "@/store";
-import type { DiffLine, FileView, Hunk } from "@/types";
+import type { DiffLine, FileView, Hunk, StagedComment } from "@/types";
 
 /** Total px of the non-content split columns: 2×(marker+gutter) + divider. */
 const SPLIT_FIXED_PX = 28 + 46 + 7 + 28 + 46;
@@ -33,11 +34,24 @@ function anchor(line: DiffLine): Anchor | null {
 }
 
 export function DiffView({ view }: { view: FileView }) {
-  const { layout, selected, staged } = useStore();
+  const { layout, selected, staged, scrollTo, setScrollTo } = useStore();
   const [composing, setComposing] = useState<Composing>(null);
 
   // Drop any open composer when switching files.
   useEffect(() => setComposing(null), [selected]);
+
+  // Scroll to (and briefly flash) a line when navigated from the review list.
+  // Re-runs as the new file's diff renders; clears the request once it lands.
+  useEffect(() => {
+    if (!scrollTo) return;
+    const el = document.querySelector<HTMLElement>(`[data-anchor~="${CSS.escape(scrollTo)}"]`);
+    if (!el) return;
+    el.scrollIntoView({ block: "center", behavior: "smooth" });
+    el.classList.add("flash-line");
+    const t = setTimeout(() => el.classList.remove("flash-line"), 1200);
+    setScrollTo(null);
+    return () => clearTimeout(t);
+  }, [scrollTo, view, setScrollTo]);
 
   const fileComments = staged.filter((c) => c.file === selected).length;
   const shared = { composing, setComposing };
@@ -76,7 +90,17 @@ interface Shared {
   setComposing: (c: Composing) => void;
 }
 
-const GUT = "w-px select-none whitespace-nowrap border-r border-line bg-panel px-2 text-right text-dim";
+// No background here — callers add exactly one (`bg-panel` for context, or the
+// add/del tint), so the gutter never loses its tint to a CSS-order override.
+const GUT =
+  "w-px select-none whitespace-nowrap border-r border-line px-2 text-right align-top text-dim";
+
+/** A line's code cell content: Pygments HTML when present, else plain text. */
+function Code({ line }: { line?: DiffLine }) {
+  if (!line) return null;
+  if (line.html != null) return <span dangerouslySetInnerHTML={{ __html: line.html }} />;
+  return <>{line.content}</>;
+}
 
 // --------------------------------------------------------------------------- //
 // Inline / full-file.
@@ -106,15 +130,15 @@ function InlineRow({ line, composing, setComposing }: { line: DiffLine } & Share
   const a = anchor(line);
   const sign = line.kind === "add" ? "+" : line.kind === "del" ? "−" : "";
   const tone = line.kind === "add" ? "bg-add-bg" : line.kind === "del" ? "bg-del-bg" : "";
-  const gutTone = line.kind === "add" ? "bg-add-gut" : line.kind === "del" ? "bg-del-gut" : "";
+  const gutTone = line.kind === "add" ? "bg-add-gut" : line.kind === "del" ? "bg-del-gut" : "bg-panel";
   return (
     <>
-      <tr className="group">
+      <tr className="group" data-anchor={a ? `${a.side}:${a.line}` : undefined}>
         <Marker anchor={a} onOpen={setComposing} />
         <td className={`${GUT} ${gutTone}`}>{line.old ?? ""}</td>
         <td className={`${GUT} ${gutTone}`}>{line.new ?? ""}</td>
-        <td className={`px-1.5 text-center text-dim ${tone}`}>{sign}</td>
-        <td className={`whitespace-pre-wrap px-2.5 [overflow-wrap:anywhere] [tab-size:var(--tab,4)] ${tone}`}>{line.content}</td>
+        <td className={`px-1.5 text-center align-top text-dim ${tone}`}>{sign}</td>
+        <td className={`whitespace-pre-wrap px-2.5 align-top [overflow-wrap:anywhere] [tab-size:var(--tab,4)] ${tone}`}><Code line={line} /></td>
       </tr>
       <Extras anchor={a} composing={composing} setComposing={setComposing} />
     </>
@@ -221,17 +245,23 @@ function SplitRows({ lines, composing, setComposing }: { lines: DiffLine[] } & S
         const rightAnchor = right ? anchor(right) : null;
         return (
           <ExtrasGroup key={i} anchors={[leftAnchor, rightAnchor]} composing={composing} setComposing={setComposing}>
-            <tr className="group">
+            <tr
+              className="group"
+              data-anchor={[leftAnchor, rightAnchor]
+                .filter((x): x is Anchor => x !== null)
+                .map((x) => `${x.side}:${x.line}`)
+                .join(" ")}
+            >
               <Marker anchor={leftAnchor} onOpen={setComposing} />
-              <td className={GUT}>{left?.old ?? ""}</td>
-              <td className={`whitespace-pre-wrap px-2.5 [overflow-wrap:anywhere] [tab-size:var(--tab,4)] ${left ? (row.ctx ? "" : "bg-del-bg") : "bg-panel2"}`}>
-                {left?.content ?? ""}
+              <td className={`${GUT} ${left && !row.ctx ? "bg-del-gut" : "bg-panel"}`}>{left?.old ?? ""}</td>
+              <td className={`whitespace-pre-wrap px-2.5 align-top [overflow-wrap:anywhere] [tab-size:var(--tab,4)] ${left ? (row.ctx ? "" : "bg-del-bg") : "bg-panel2"}`}>
+                <Code line={left} />
               </td>
               <td data-mid="1" className="cursor-col-resize bg-line p-0 hover:bg-accent" />
               <Marker anchor={rightAnchor} onOpen={setComposing} />
-              <td className={GUT}>{right?.new ?? ""}</td>
-              <td className={`whitespace-pre-wrap px-2.5 [overflow-wrap:anywhere] [tab-size:var(--tab,4)] ${right ? (row.ctx ? "" : "bg-add-bg") : "bg-panel2"}`}>
-                {right?.content ?? ""}
+              <td className={`${GUT} ${right && !row.ctx ? "bg-add-gut" : "bg-panel"}`}>{right?.new ?? ""}</td>
+              <td className={`whitespace-pre-wrap px-2.5 align-top [overflow-wrap:anywhere] [tab-size:var(--tab,4)] ${right ? (row.ctx ? "" : "bg-add-bg") : "bg-panel2"}`}>
+                <Code line={right} />
               </td>
             </tr>
           </ExtrasGroup>
@@ -295,8 +325,17 @@ function ExtrasGroup({
   children,
 }: { anchors: (Anchor | null)[]; children?: React.ReactNode } & Shared) {
   const { selected, staged } = useStore();
+  // Dedup by side:line — in split view a context row passes the same anchor for
+  // both sides, which would otherwise render the note twice (and collide on key).
+  const seen = new Set<string>();
   const extras = anchors
     .filter((a): a is Anchor => a !== null)
+    .filter((a) => {
+      const key = `${a.side}:${a.line}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    })
     .map((a) => ({
       anchor: a,
       notes: staged.filter((c) => c.file === selected && c.side === a.side && c.line === a.line),
@@ -309,11 +348,13 @@ function ExtrasGroup({
       {children}
       {extras.map((x) => (
         <tr key={`${x.anchor.side}:${x.anchor.line}`}>
-          <td colSpan={SPAN} className="p-0">
-            {x.composing && <Composer anchor={x.anchor} onClose={() => setComposing(null)} />}
-            {x.notes.map((n) => (
-              <StagedNote key={n.id} body={n.body} id={n.id} />
-            ))}
+          <td colSpan={SPAN} className="border-y border-line bg-panel p-0">
+            <div className="max-w-3xl space-y-2 py-2 pr-3 pl-12">
+              {x.notes.map((n) => (
+                <StagedNote key={n.id} note={n} />
+              ))}
+              {x.composing && <Composer anchor={x.anchor} onClose={() => setComposing(null)} />}
+            </div>
           </td>
         </tr>
       ))}
@@ -323,55 +364,170 @@ function ExtrasGroup({
 
 function Composer({ anchor, onClose }: { anchor: Anchor; onClose: () => void }) {
   const { selected, staged, stage } = useStore();
-  const [body, setBody] = useState("");
-  const submit = () => {
-    if (!selected || !body.trim()) return;
+  const submit = (body: string) => {
+    if (!selected) return;
     stage({
       id: `c${Date.now()}_${staged.length}`,
       file: selected,
       line: anchor.line,
       side: anchor.side,
       code: anchor.code,
-      body: body.trim(),
+      body,
     });
     onClose();
   };
   return (
-    <div className="m-1.5 rounded-lg border border-accent bg-canvas p-2.5">
-      <div className="mb-1.5 font-mono text-[11.5px] text-dim">
-        💬 {selected}:{anchor.line} <span className="text-[10px]">({anchor.side} side)</span>
+    <div className="overflow-hidden rounded-md border border-accent bg-canvas shadow-sm">
+      <div className="flex items-center gap-2 border-b border-line bg-panel px-3 py-1.5 text-[11px]">
+        <CommentBadge />
+        <span className="font-semibold text-fg">Add comment</span>
+        <LineRef anchor={anchor} />
+        <span className="ml-auto truncate font-mono text-[10px] text-dim">{selected}</span>
       </div>
+      <CommentEditor initial="" saveLabel="Add comment" onSave={submit} onCancel={onClose} />
+    </div>
+  );
+}
+
+/** A markdown comment editor: textarea (cursor lands at the end) with a live
+ *  rendered preview below. Used both to add a new comment and to edit one. */
+function CommentEditor({
+  initial,
+  saveLabel,
+  onSave,
+  onCancel,
+}: {
+  initial: string;
+  saveLabel: string;
+  onSave: (body: string) => void;
+  onCancel: () => void;
+}) {
+  const [body, setBody] = useState(initial);
+  const ref = useRef<HTMLTextAreaElement>(null);
+
+  // Focus on mount and place the caret at the very end of the existing text.
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    el.focus();
+    el.setSelectionRange(el.value.length, el.value.length);
+  }, []);
+
+  const save = () => {
+    if (body.trim()) onSave(body.trim());
+  };
+
+  return (
+    <div className="p-2">
       <textarea
-        autoFocus
+        ref={ref}
         value={body}
         onChange={(e) => setBody(e.target.value)}
         onKeyDown={(e) => {
-          if ((e.metaKey || e.ctrlKey) && e.key === "Enter") submit();
-          else if (e.key === "Escape") onClose();
+          if ((e.metaKey || e.ctrlKey) && e.key === "Enter") save();
+          else if (e.key === "Escape") onCancel();
         }}
-        placeholder="Comment on this line — ⌘/Ctrl+Enter to add"
-        className="min-h-[56px] w-full resize-y rounded-md border border-line p-2 font-sans text-[13px]"
+        placeholder="Write a comment in markdown — ⌘/Ctrl+Enter to save, Esc to cancel"
+        className="block min-h-[72px] w-full resize-y rounded-md border border-line bg-canvas p-2 font-mono text-[12.5px] leading-relaxed outline-none focus:border-accent focus:ring-2 focus:ring-accent/25"
       />
-      <div className="mt-1.5 flex gap-2">
-        <button onClick={submit} className="rounded-md border border-line px-2.5 py-1 hover:bg-panel2">
-          Add comment
-        </button>
-        <button onClick={onClose} className="rounded-md border border-line px-2.5 py-1 hover:bg-panel2">
-          Cancel
-        </button>
+      {body.trim() && (
+        <div className="mt-2 rounded-md border border-line bg-panel px-2.5 py-2">
+          <div className="mb-1 text-[9.5px] font-semibold uppercase tracking-wide text-dim">Preview</div>
+          <Markdown>{body}</Markdown>
+        </div>
+      )}
+      <div className="mt-2 flex items-center justify-between gap-2">
+        <span className="text-[10px] text-dim">Markdown supported</span>
+        <div className="flex gap-2">
+          <button
+            onClick={onCancel}
+            className="rounded-md px-2.5 py-1 text-[12px] font-medium text-dim hover:bg-panel2"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={save}
+            disabled={!body.trim()}
+            className="rounded-md bg-accent px-3 py-1 text-[12px] font-semibold text-white shadow-sm transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {saveLabel}
+          </button>
+        </div>
       </div>
     </div>
   );
 }
 
-function StagedNote({ body, id }: { body: string; id: string }) {
-  const { unstage } = useStore();
+/** A small round 💬 chip used in comment headers. */
+function CommentBadge() {
   return (
-    <div className="mx-2.5 mb-1.5 flex items-center gap-2 rounded-r-md border-l-[3px] border-star bg-[#fffaf0] px-2.5 py-1.5 font-sans">
-      <span>💬 {body}</span>
-      <button onClick={() => unstage(id)} className="ml-auto text-base leading-none text-dim hover:text-del" title="remove">
-        ×
-      </button>
+    <span className="grid h-5 w-5 flex-none place-items-center rounded-full bg-[#ddf4ff] text-[10px] leading-none">
+      💬
+    </span>
+  );
+}
+
+/** A compact side+line reference badge (``L`` = old/left, ``R`` = new/right). */
+function LineRef({ anchor }: { anchor: Anchor }) {
+  return (
+    <span className="rounded bg-panel2 px-1.5 py-0.5 font-mono text-[10px] text-dim">
+      {anchor.side === "old" ? "L" : "R"}
+      {anchor.line}
+    </span>
+  );
+}
+
+function StagedNote({ note }: { note: StagedComment }) {
+  const { unstage, editComment } = useStore();
+  const [editing, setEditing] = useState(false);
+
+  const startEdit = () => setEditing(true);
+
+  return (
+    <div className="group/c overflow-hidden rounded-md border border-line bg-canvas shadow-sm">
+      <div className="flex items-center gap-2 border-b border-line bg-panel px-3 py-1.5 text-[11px]">
+        <CommentBadge />
+        <span className="font-semibold text-fg">Review note</span>
+        <LineRef anchor={{ line: note.line, side: note.side, code: note.code }} />
+        <span className="ml-auto rounded-full border border-[#e6d8a8] bg-[#fff8e6] px-1.5 py-0.5 text-[10px] font-medium text-mod">
+          pending
+        </span>
+        {!editing && (
+          <button
+            onClick={startEdit}
+            title="Edit comment"
+            className="grid h-7 w-7 flex-none place-items-center rounded-md text-[15px] leading-none text-dim transition hover:bg-panel2 hover:text-accent"
+          >
+            ✎
+          </button>
+        )}
+        <button
+          onClick={() => unstage(note.id)}
+          title="Delete comment"
+          className="grid h-7 w-7 flex-none place-items-center rounded-md text-[15px] leading-none text-dim transition hover:bg-del-bg hover:text-del"
+        >
+          ✕
+        </button>
+      </div>
+      {editing ? (
+        <CommentEditor
+          initial={note.body}
+          saveLabel="Save"
+          onSave={(body) => {
+            editComment(note.id, body);
+            setEditing(false);
+          }}
+          onCancel={() => setEditing(false)}
+        />
+      ) : (
+        <div
+          onClick={startEdit}
+          title="Click to edit"
+          className="cursor-text px-3 py-2"
+        >
+          <Markdown>{note.body}</Markdown>
+        </div>
+      )}
     </div>
   );
 }
