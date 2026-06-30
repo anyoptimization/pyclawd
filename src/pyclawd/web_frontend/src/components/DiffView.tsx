@@ -2,8 +2,10 @@
 // carries its own comment gutter — a 💬 fades in on hover and stays (highlighted) on
 // lines that already have a staged comment. In split view that means a comment
 // affordance and line numbers on BOTH the old (left) and new (right) sides.
+import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 
+import { api } from "@/api";
 import { Markdown } from "@/components/Markdown";
 import { usePersisted } from "@/hooks";
 import { statusBadge } from "@/lib/status";
@@ -34,11 +36,58 @@ function anchor(line: DiffLine): Anchor | null {
 }
 
 export function DiffView({ view }: { view: FileView }) {
-  const { layout, selected, staged, scrollTo, setScrollTo } = useStore();
+  const { layout, project, selected, staged, scrollTo, setScrollTo, selectFile } = useStore();
   const [composing, setComposing] = useState<Composing>(null);
+  const [editing, setEditing] = useState<string | null>(null); // draft content, or null
+  const [busy, setBusy] = useState(false);
+  const qc = useQueryClient();
 
-  // Drop any open composer when switching files.
-  useEffect(() => setComposing(null), [selected]);
+  // Drop any open composer / editor when switching files.
+  useEffect(() => {
+    setComposing(null);
+    setEditing(null);
+  }, [selected]);
+
+  const refresh = () => {
+    qc.invalidateQueries({ queryKey: ["diff", project] });
+    qc.invalidateQueries({ queryKey: ["changes", project] });
+  };
+
+  const startEdit = async () => {
+    if (!project || !selected) return;
+    setBusy(true);
+    try {
+      const { content } = await api.fileRaw(project, selected);
+      setEditing(content);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const saveEdit = async () => {
+    if (!project || !selected || editing === null) return;
+    setBusy(true);
+    try {
+      await api.saveFile(project, selected, editing);
+      setEditing(null);
+      refresh();
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const deleteFile = async () => {
+    if (!project || !selected) return;
+    if (!window.confirm(`Delete ${selected} from the working tree?`)) return;
+    setBusy(true);
+    try {
+      await api.deleteFile(project, selected);
+      selectFile(null);
+      refresh();
+    } finally {
+      setBusy(false);
+    }
+  };
 
   // Scroll to (and briefly flash) a line when navigated from the review list.
   // Re-runs as the new file's diff renders; clears the request once it lands.
@@ -69,6 +118,8 @@ export function DiffView({ view }: { view: FileView }) {
     body = <InlineTable hunks={view.hunks} {...shared} />;
   }
 
+  const canEdit = !!selected && !view.binary;
+
   return (
     <>
       <div className="sticky top-0 z-[1] flex items-center gap-2.5 border-b border-line bg-panel px-4 py-2.5 font-mono text-xs">
@@ -79,9 +130,76 @@ export function DiffView({ view }: { view: FileView }) {
             💬 {fileComments} comment{fileComments > 1 ? "s" : ""}
           </span>
         )}
+        <span className="flex-1" />
+        {editing !== null ? (
+          <>
+            <HeaderBtn onClick={saveEdit} disabled={busy} tone="accent">
+              {busy ? "Saving…" : "Save"}
+            </HeaderBtn>
+            <HeaderBtn onClick={() => setEditing(null)} disabled={busy}>
+              Cancel
+            </HeaderBtn>
+          </>
+        ) : (
+          <>
+            {canEdit && (
+              <HeaderBtn onClick={startEdit} disabled={busy} title="Edit this file in the browser">
+                ✎ Edit
+              </HeaderBtn>
+            )}
+            {selected && (
+              <HeaderBtn onClick={deleteFile} disabled={busy} tone="del" title="Delete this file">
+                🗑 Delete
+              </HeaderBtn>
+            )}
+          </>
+        )}
       </div>
-      {body}
+      {editing !== null ? (
+        <div className="p-3">
+          <textarea
+            value={editing}
+            onChange={(e) => setEditing(e.target.value)}
+            spellCheck={false}
+            className="block h-[calc(100vh-220px)] min-h-[320px] w-full resize-y rounded-md border border-line bg-canvas p-3 font-mono text-[12.5px] leading-[1.55] outline-none focus:border-accent [tab-size:var(--tab,4)]"
+          />
+        </div>
+      ) : (
+        body
+      )}
     </>
+  );
+}
+
+/** A compact header action button (used for Edit/Delete/Save/Cancel on a file). */
+function HeaderBtn({
+  onClick,
+  disabled,
+  tone,
+  title,
+  children,
+}: {
+  onClick: () => void;
+  disabled?: boolean;
+  tone?: "accent" | "del";
+  title?: string;
+  children: React.ReactNode;
+}) {
+  const toneCls =
+    tone === "accent"
+      ? "border-accent bg-accent text-white hover:brightness-110"
+      : tone === "del"
+        ? "border-line text-del hover:bg-del-bg hover:border-del"
+        : "border-line text-fg hover:bg-panel2";
+  return (
+    <button
+      onClick={onClick}
+      disabled={disabled}
+      title={title}
+      className={`rounded-md border px-2 py-0.5 text-[11px] font-medium transition disabled:cursor-not-allowed disabled:opacity-50 ${toneCls}`}
+    >
+      {children}
+    </button>
   );
 }
 

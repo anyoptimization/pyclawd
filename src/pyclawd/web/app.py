@@ -85,6 +85,21 @@ class RunBody(BaseModel):
     verb: str
 
 
+class SaveFileBody(BaseModel):
+    """Body of ``POST /api/file/save`` — overwrite a working-tree file's content."""
+
+    path: str
+    content: str
+    project: str | None = None
+
+
+class DeleteFileBody(BaseModel):
+    """Body of ``POST /api/file/delete`` — remove a file from the working tree."""
+
+    path: str
+    project: str | None = None
+
+
 class AgentBody(BaseModel):
     """Body of ``POST /api/agent/run`` — dispatch a headless ``claude -p`` agent.
 
@@ -225,6 +240,35 @@ def create_app(default_project: str | None = None, registry: Registry | None = N
         if not repo.contains(path):
             raise HTTPException(status_code=400, detail="invalid path")
         return repo.file_view(_norm_base(base), path, mode, _norm_target(target))
+
+    # -- file editing (working tree) --------------------------------------- #
+
+    @app.get("/api/file/raw")
+    def get_file_raw(path: str, project: str | None = None) -> dict:
+        """Return the working-tree text of *path* (fuel for the in-browser editor)."""
+        repo = repo_for(project)
+        if not repo.contains(path):
+            raise HTTPException(status_code=400, detail="invalid path")
+        return {"path": path, "content": repo.working_text(path)}
+
+    @app.post("/api/file/save")
+    def save_file(body: SaveFileBody) -> dict:
+        """Overwrite a working-tree file with new content (manual inline edit)."""
+        repo = repo_for(body.project)
+        if not repo.contains(body.path):
+            raise HTTPException(status_code=400, detail="invalid path")
+        repo.save_file(body.path, body.content)
+        return {"ok": True}
+
+    @app.post("/api/file/delete")
+    def delete_file(body: DeleteFileBody) -> dict:
+        """Delete a file from the working tree; 404 if it was already gone."""
+        repo = repo_for(body.project)
+        if not repo.contains(body.path):
+            raise HTTPException(status_code=400, detail="invalid path")
+        if not repo.delete_file(body.path):
+            raise HTTPException(status_code=404, detail="file not found")
+        return {"ok": True}
 
     @app.get("/api/state")
     def get_state(

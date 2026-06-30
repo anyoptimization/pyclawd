@@ -318,6 +318,27 @@ class GitRepo:
             return False
         return full == root or root in full.parents
 
+    def working_text(self, path: str) -> str:
+        """Return the working-tree text of *path* (empty string if it is absent)."""
+        try:
+            return (self.root / path).read_text(errors="replace")
+        except OSError:
+            return ""
+
+    def save_file(self, path: str, content: str) -> None:
+        """Overwrite *path* in the working tree with *content*, creating parents."""
+        target = self.root / path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(content)
+
+    def delete_file(self, path: str) -> bool:
+        """Delete *path* from the working tree; ``False`` if it was already missing."""
+        try:
+            (self.root / path).unlink()
+            return True
+        except FileNotFoundError:
+            return False
+
     def _is_untracked(self, path: str) -> bool:
         """Return ``True`` when *path* is not tracked by git."""
         _, out, _ = self._git("ls-files", "--", path)

@@ -101,6 +101,55 @@ def test_spa_does_not_mask_unknown_api(client: TestClient) -> None:
     assert client.get("/api/does-not-exist").status_code == 404
 
 
+def test_file_raw_returns_working_content(client: TestClient) -> None:
+    r = client.get("/api/file/raw", params={"project": "demo", "path": "a.txt"})
+    assert r.status_code == 200
+    assert r.json()["content"] == "line1\nline2\n"
+
+
+def test_save_file_overwrites_working_tree(client: TestClient, tmp_path: Path) -> None:
+    r = client.post("/api/file/save", json={"project": "demo", "path": "a.txt", "content": "new\n"})
+    assert r.status_code == 200
+    assert (tmp_path / "demo" / "a.txt").read_text() == "new\n"
+
+
+def test_save_file_creates_nested_dirs(client: TestClient, tmp_path: Path) -> None:
+    r = client.post(
+        "/api/file/save", json={"project": "demo", "path": "sub/dir/n.txt", "content": "x"}
+    )
+    assert r.status_code == 200
+    assert (tmp_path / "demo" / "sub" / "dir" / "n.txt").read_text() == "x"
+
+
+def test_delete_file_removes_it(client: TestClient, tmp_path: Path) -> None:
+    assert (tmp_path / "demo" / "a.txt").exists()
+    r = client.post("/api/file/delete", json={"project": "demo", "path": "a.txt"})
+    assert r.status_code == 200
+    assert not (tmp_path / "demo" / "a.txt").exists()
+
+
+def test_delete_missing_file_is_404(client: TestClient) -> None:
+    assert (
+        client.post("/api/file/delete", json={"project": "demo", "path": "ghost.txt"}).status_code
+        == 404
+    )
+
+
+def test_file_endpoints_reject_traversal(client: TestClient) -> None:
+    assert (
+        client.get("/api/file/raw", params={"project": "demo", "path": "../x"}).status_code == 400
+    )
+    assert (
+        client.post(
+            "/api/file/save", json={"project": "demo", "path": "../x", "content": "y"}
+        ).status_code
+        == 400
+    )
+    assert (
+        client.post("/api/file/delete", json={"project": "demo", "path": "../x"}).status_code == 400
+    )
+
+
 def test_refs_and_files(client: TestClient) -> None:
     refs = client.get("/api/refs", params={"project": "demo"}).json()
     assert refs["current"] in {"main", "master"}

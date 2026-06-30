@@ -48,6 +48,21 @@ export const api = {
   diff: (project: string, base: string, target: string, path: string, mode: string) =>
     request<FileView>(`/api/diff${qs({ project, base, target, path, mode })}`),
 
+  fileRaw: (project: string, path: string) =>
+    request<{ path: string; content: string }>(`/api/file/raw${qs({ project, path })}`),
+
+  saveFile: (project: string, path: string, content: string) =>
+    request<{ ok: boolean }>("/api/file/save", {
+      method: "POST",
+      body: JSON.stringify({ project, path, content }),
+    }),
+
+  deleteFile: (project: string, path: string) =>
+    request<{ ok: boolean }>("/api/file/delete", {
+      method: "POST",
+      body: JSON.stringify({ project, path }),
+    }),
+
   sessions: () => request<{ sessions: Session[] }>("/api/sessions"),
 
   config: () => request<{ roots: string[] }>("/api/config"),
