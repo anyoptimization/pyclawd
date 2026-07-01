@@ -177,7 +177,15 @@ def _compare(expr: str | None = None) -> None:
     cmd = _pytest_cmd(project, benchmark)
     if expr:
         cmd += ["-k", expr]
-    raise typer.Exit(run.run(cmd, project.root))
+    code = run.run(cmd, project.root)
+    # pytest exit 5 = "no tests collected" — a project can configure benchmark before
+    # writing any @pytest.mark.benchmark tests. That is not a gate failure; report it
+    # cleanly instead of surfacing pytest's bare exit 5.
+    no_tests_collected = 5
+    if code == no_tests_collected:
+        typer.secho("no benchmark tests collected — nothing to gate.", fg="yellow")
+        raise typer.Exit(0)
+    raise typer.Exit(code)
 
 
 def update(

@@ -72,7 +72,12 @@ def _baseline_dir(config: pytest.Config) -> Path:
     """
     raw = str(config.getini("benchmark_dir") or "").strip()
     if not raw:
-        return Path(config.cache.mkdir("pyclawd_benchmark"))
+        # `config.cache` is absent when the cacheprovider plugin is disabled
+        # (`-p no:cacheprovider`); fall back to the conventional cache path directly.
+        cache = getattr(config, "cache", None)
+        if cache is not None:
+            return Path(cache.mkdir("pyclawd_benchmark"))
+        return config.rootpath / ".pytest_cache" / "pyclawd_benchmark"
     path = Path(raw)
     return path if path.is_absolute() else config.rootpath / path
 
