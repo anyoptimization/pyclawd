@@ -72,11 +72,12 @@ path = "src/pyclawd/__init__.py"
 # the default VCS file-walk: in this repo the walk silently dropped the
 # skills/pyclawd and skills/pyclawd-doctor subtrees, so we exclude skills from the
 # walk and force-include the whole tree deterministically. The BUILT web/static
-# frontend (gitignored) rides along as an artifact. (The repo-root `skills` symlink is
-# untracked — see .gitignore — so it cannot shadow the real package tree.)
+# frontend is now COMMITTED (see .gitignore), so the VCS walk picks it up on any
+# clone — no Node needed to build a complete wheel from a fresh checkout. (The
+# repo-root `skills` symlink is untracked — see .gitignore — so it cannot shadow the
+# real package tree.)
 [tool.hatch.build.targets.sdist]
 exclude = ["src/pyclawd/skills"]
-artifacts = ["src/pyclawd/web/static/**"]
 
 [tool.hatch.build.targets.sdist.force-include]
 "src/pyclawd/skills" = "src/pyclawd/skills"
@@ -84,12 +85,11 @@ artifacts = ["src/pyclawd/web/static/**"]
 [tool.hatch.build.targets.wheel]
 packages = ["src/pyclawd"]
 include = ["src/pyclawd/py.typed"]  # PEP 561 — ship the typed marker (we're a typed lib)
-# Ship the BUILT web frontend (gitignored, so listed as an artifact to override VCS
-# exclusion) and keep its SOURCE (the Vite/React project) OUT of the wheel — only
-# `pyclawd[web]` users need the static bundle, nobody needs the TS sources or Node.
+# The BUILT web frontend (src/pyclawd/web/static/) is committed, so the package walk
+# ships it automatically. Keep its SOURCE (the Vite/React project) OUT of the wheel —
+# only `pyclawd[web]` users need the static bundle, nobody needs the TS sources or Node.
 # Exclude skills from the package walk; it is force-included below (same reason as the
 # sdist — the VCS walk drops subtrees of it).
-artifacts = ["src/pyclawd/web/static/**"]
 exclude = ["src/pyclawd/web_frontend", "src/pyclawd/skills"]
 
 # force-include ships, by literal filesystem copy (no VCS heuristics):

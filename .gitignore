@@ -223,9 +223,11 @@ __marimo__/
 # Claude Code agent worktrees (transient — never commit)
 .claude/worktrees/
 
-# pyclawd web — built frontend assets (produced by `npm run build` in
-# src/pyclawd/web_frontend; shipped into the wheel via hatch artifacts, not git).
-src/pyclawd/web/static/
+# pyclawd web — the built frontend assets in src/pyclawd/web/static/ are
+# COMMITTED (not ignored) so a fresh `git clone` + `pip install '.[web]'` ships a
+# working dashboard with no Node toolchain required. Regenerate them with
+# `npm run build` in src/pyclawd/web_frontend after changing the frontend source.
+# Only the Node install dir is ignored.
 src/pyclawd/web_frontend/node_modules/
 
 # Repo-root convenience symlink → src/pyclawd/skills (real tree is the package

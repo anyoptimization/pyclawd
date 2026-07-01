@@ -74,7 +74,17 @@ def serve(
     _require_web_stack()
     import uvicorn
 
-    from pyclawd.web.app import create_app
+    from pyclawd.web.app import _STATIC_DIR, create_app
+
+    if not _STATIC_DIR.is_dir():
+        typer.secho(
+            "warning: the built frontend is missing — only the JSON API will be served, "
+            "the dashboard UI will not load.\n"
+            "In a source checkout, build it with:  "
+            "cd src/pyclawd/web_frontend && npm install && npm run build",
+            fg="yellow",
+            err=True,
+        )
 
     reg = _registry()
     default = None
