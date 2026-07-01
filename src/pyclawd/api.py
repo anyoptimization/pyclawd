@@ -82,6 +82,34 @@ def _class_bases(node: ast.ClassDef) -> str:
     return f"({', '.join(bases)})" if bases else ""
 
 
+def _class_lines(qualname: str, node: ast.ClassDef, dotted: str) -> list[str]:
+    """Surface lines for a class and its public members, recursing into nested classes.
+
+    Emits the class itself (``qualname:dotted(bases)``), each public method (plus
+    ``__init__``), and — recursively — any public nested class and *its* members, so a
+    removed or changed nested class shows up as surface drift. ``dotted`` is the class's
+    dotted name within the module (``"Outer"`` or ``"Outer.Inner"``).
+
+    Args:
+        qualname: The dotted module name (the ``pkg.module`` line prefix).
+        node: The class definition node.
+        dotted: The class's dotted name within the module.
+
+    Returns:
+        The surface lines for this class and everything public nested inside it.
+    """
+    lines = [f"{qualname}:{dotted}{_class_bases(node)}"]
+    for member in node.body:
+        if isinstance(member, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            # A class's methods are surface if public, plus __init__ (its constructor
+            # signature is API even though it is dunder).
+            if _is_public(member.name) or member.name == "__init__":
+                lines.append(f"{qualname}:{dotted}.{member.name}{_render_signature(member)}")
+        elif isinstance(member, ast.ClassDef) and _is_public(member.name):
+            lines.extend(_class_lines(qualname, member, f"{dotted}.{member.name}"))
+    return lines
+
+
 def _public_names_from_all(module: ast.Module) -> set[str] | None:
     """Return the names listed in a module-level ``__all__``, or ``None`` if absent.
 
@@ -135,16 +163,8 @@ def extract_module(source: str, qualname: str) -> list[str]:
             if public(stmt.name):
                 lines.append(f"{qualname}:{stmt.name}{_render_signature(stmt)}")
         elif isinstance(stmt, ast.ClassDef):
-            if not public(stmt.name):
-                continue
-            lines.append(f"{qualname}:{stmt.name}{_class_bases(stmt)}")
-            for member in stmt.body:
-                if not isinstance(member, (ast.FunctionDef, ast.AsyncFunctionDef)):
-                    continue
-                # A class's methods are surface if public, plus __init__ (its
-                # constructor signature is API even though it is dunder).
-                if _is_public(member.name) or member.name == "__init__":
-                    lines.append(f"{qualname}:{stmt.name}.{member.name}{_render_signature(member)}")
+            if public(stmt.name):
+                lines.extend(_class_lines(qualname, stmt, stmt.name))
         elif isinstance(stmt, ast.Assign):
             for target in stmt.targets:
                 if isinstance(target, ast.Name) and public(target.id):

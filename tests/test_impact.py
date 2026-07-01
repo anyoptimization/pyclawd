@@ -13,6 +13,32 @@ import pytest
 
 from pyclawd import repo
 from pyclawd.impact import impacted_tests, strip_context_phase
+from pyclawd.tests import _resolve_nodeids
+
+
+def test_resolve_nodeids_restores_tests_prefix(tmp_path: Path) -> None:
+    # A map built with rootdir=tests/ stores ids WITHOUT the tests/ prefix; re-running
+    # from the repo root needs it restored or pytest collects nothing.
+    (tmp_path / "tests" / "sub").mkdir(parents=True)
+    (tmp_path / "tests" / "test_x.py").write_text("def test_a(): pass\n")
+    (tmp_path / "tests" / "sub" / "test_y.py").write_text("def test_b(): pass\n")
+
+    runnable, stale = _resolve_nodeids(
+        ["test_x.py::test_a", "sub/test_y.py::test_b", "gone.py::test_c"],
+        tmp_path,
+        "tests/",
+    )
+    assert runnable == ["tests/test_x.py::test_a", "tests/sub/test_y.py::test_b"]
+    assert stale == ["gone.py::test_c"]
+
+
+def test_resolve_nodeids_leaves_already_resolvable(tmp_path: Path) -> None:
+    (tmp_path / "tests").mkdir()
+    (tmp_path / "tests" / "test_x.py").write_text("def test_a(): pass\n")
+    # An id that already resolves from the root (map built with rootdir=root) is kept.
+    runnable, stale = _resolve_nodeids(["tests/test_x.py::test_a"], tmp_path, "tests/")
+    assert runnable == ["tests/test_x.py::test_a"]
+    assert stale == []
 
 
 def test_strip_context_phase() -> None:

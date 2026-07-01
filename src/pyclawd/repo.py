@@ -71,6 +71,8 @@ def _parse_unified0_hunks(diff_text: str) -> dict[str, set[int]]:
                 current = target[2:] if target.startswith("b/") else target
         elif line.startswith("@@") and current is not None:
             # @@ -old_start,old_count +new_start,new_count @@
+            if "+" not in line:  # malformed header — no new-side range to read
+                continue
             plus = line.split("+", 1)[1].split(" ", 1)[0]
             start_s, _, count_s = plus.partition(",")
             try:
@@ -78,7 +80,7 @@ def _parse_unified0_hunks(diff_text: str) -> dict[str, set[int]]:
                 count = int(count_s) if count_s else 1
             except ValueError:
                 continue
-            if count > 0:
+            if count > 0 and start >= 1:  # line numbers are 1-indexed
                 result.setdefault(current, set()).update(range(start, start + count))
     return result
 

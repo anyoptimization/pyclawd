@@ -56,6 +56,23 @@ def test_extract_module_public_surface() -> None:
     assert "pkg.mod:Widget._helper(self)" not in lines
 
 
+def test_nested_public_class_is_extracted() -> None:
+    src = (
+        "class Outer:\n"
+        "    class Inner:\n"
+        "        def m(self) -> int:\n"
+        "            return 0\n"
+        "    class _Hidden:\n"
+        "        pass\n"
+    )
+    lines = set(extract_module(src, "m"))
+    assert "m:Outer" in lines
+    assert "m:Outer.Inner" in lines
+    assert "m:Outer.Inner.m(self) -> int" in lines
+    # A private nested class is excluded.
+    assert not any("_Hidden" in ln for ln in lines)
+
+
 def test_dunder_all_restricts_surface() -> None:
     src = '__all__ = ["kept"]\n\ndef kept():\n    pass\n\ndef dropped():\n    pass\n'
     lines = set(extract_module(src, "m"))

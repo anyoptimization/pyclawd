@@ -340,6 +340,40 @@ def _source_changed_lines(project: Project, root: Path, against: str) -> dict[st
     return {f: lines for f, lines in changed.items() if any(p.search(f) for p in includes)}
 
 
+def _resolve_nodeids(nodeids: list[str], root: Path, tests_dir: str) -> tuple[list[str], list[str]]:
+    """Rewrite coverage-context node ids so their file part resolves from the repo root.
+
+    pytest-cov records a context as the test node id **relative to the rootdir pytest
+    chose when the map was built** — which is the tests directory itself when it holds a
+    ``pytest.ini`` (so the id lacks the ``tests/`` prefix, e.g. ``test_x.py::t`` not
+    ``tests/test_x.py::t``). Re-running such an id from the repo root then fails to
+    collect ("file or directory not found") and silently runs nothing. This restores the
+    tests-dir prefix when the bare path does not exist but the prefixed one does, so the
+    id resolves regardless of the rootdir the map was built under.
+
+    Args:
+        nodeids: Raw node ids from the coverage contexts.
+        root: The repository root the re-run executes from.
+        tests_dir: The configured tests directory (the candidate prefix).
+
+    Returns:
+        ``(runnable, stale)`` — node ids whose file exists (re-prefixed when needed) and
+        node ids whose file could not be located either way (dropped from the run).
+    """
+    prefix = tests_dir.strip("/")
+    runnable: list[str] = []
+    stale: list[str] = []
+    for nid in nodeids:
+        filepart, sep, rest = nid.partition("::")
+        if (root / filepart).exists():
+            runnable.append(nid)
+        elif prefix and (root / prefix / filepart).exists():
+            runnable.append(f"{prefix}/{filepart}{sep}{rest}")
+        else:
+            stale.append(nid)
+    return runnable, stale
+
+
 def run_changed(project: Project, args: list[str], against: str, list_only: bool) -> int:
     """Run only the tests whose coverage intersects the working diff (impact selection).
 
@@ -411,13 +445,27 @@ def run_changed(project: Project, args: list[str], against: str, list_only: bool
         )
         return 0
 
-    print(f"→ {len(nodeids)} impacted test(s) from {len(result.covered)} changed file(s):")
-    for nid in nodeids:
+    runnable, stale = _resolve_nodeids(nodeids, root, project.test.tests_dir)
+    if stale:
+        print(
+            f"⚠ {len(stale)} impacted test(s) no longer resolve to a file "
+            "(renamed/removed since the map was built) — skipped. Rebuild with "
+            "`pyclawd coverage --context`:"
+        )
+        for nid in stale:
+            print(f"     {nid}")
+
+    if not runnable:
+        print("• no runnable impacted tests — the map is stale; rebuild it.")
+        return 0
+
+    print(f"→ {len(runnable)} impacted test(s) from {len(result.covered)} changed file(s):")
+    for nid in runnable:
         print(f"     {nid}")
     if list_only:
         return 0
 
-    cmd = [*python_prefix(project), "-m", "pytest", "-q", "-rfE", *nodeids, *args]
+    cmd = [*python_prefix(project), "-m", "pytest", "-q", "-rfE", *runnable, *args]
     print()
     return run(cmd, root)
 
