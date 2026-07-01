@@ -307,6 +307,72 @@ class GoldenConfig:
 
 
 @dataclass(frozen=True)
+class BenchmarkConfig:
+    """Performance-regression oracle settings for ``pyclawd benchmark``.
+
+    golden proves an *output* is unchanged; benchmark proves it did not get
+    *slower*. A ``@pytest.mark.benchmark`` test's body is timed — run :attr:`warmup`
+    untimed calls, then :attr:`repeat` timed calls, and the **minimum** wall-clock
+    is the metric (min is the least noisy estimator of the true cost). The metric is
+    compared to a baseline with a **relative** tolerance: a run fails only when it is
+    slower than ``baseline * (1 + rtol)``; a speed-up never fails (it is reported so
+    a human can re-bless). Agents compare (``pyclawd benchmark``); humans bless
+    (``pyclawd benchmark update``).
+
+    Unlike golden, benchmark baselines are **never committed** — a time is
+    hardware-specific, so a baseline blessed on one machine is meaningless on
+    another. They live under the project's ``work_dir`` (gitignored scratch, next to
+    the test logs), so ``benchmark`` compares against *your* last blessed run on
+    *this* box. There is deliberately no baseline-directory knob: the location is
+    derived from ``work_dir``, not configured into the repo tree.
+
+    Args:
+        marker: pytest marker selecting benchmark tests, used as ``-m <marker>``.
+            Defaults to ``"benchmark"``.
+        warmup: Untimed calls before measurement (JIT/cache warm-up). Defaults to ``1``.
+        repeat: Timed repetitions; the minimum wall-clock is recorded. Defaults to ``5``.
+        rtol: Relative slow-down tolerance — the gate. A run fails when the new best
+            time exceeds ``baseline * (1 + rtol)``. Timing is noisy, so this defaults
+            generously to ``0.25`` (25%).
+    """
+
+    marker: str = "benchmark"
+    warmup: int = 1
+    repeat: int = 5
+    rtol: float = 0.25
+
+
+@dataclass(frozen=True)
+class ApiConfig:
+    """Public-API surface snapshot settings for ``pyclawd api``.
+
+    golden proves a *value* is unchanged; api proves the *public surface* is
+    unchanged — it catches an **accidental** breaking change (a removed function, a
+    renamed parameter) an edit did not intend. The surface is extracted statically
+    (``ast``, no import — deterministic across environments, no side effects) and
+    compared to a single committed text baseline. Removals and signature changes
+    fail the gate (breaking); pure additions pass with a note unless
+    :attr:`strict`. Same bless model as golden: agents compare (``pyclawd api``),
+    humans bless (``pyclawd api update``).
+
+    Args:
+        packages: Root-relative package directories whose public surface is
+            snapshotted (e.g. ``["src/mypkg"]``). Each is walked for ``.py`` files;
+            a module's public names are its ``__all__`` when defined, else its
+            non-underscore top-level defs/classes/constants.
+        baseline: Root-relative path to the committed surface baseline (a sorted
+            text file, one symbol per line — diffs read like an API changelog).
+            Defaults to ``"tests/api_surface.txt"``.
+        strict: When ``True``, additions to the surface also fail the gate (not just
+            removals/changes). Defaults to ``False`` — a pure addition is non-breaking.
+    """
+
+    packages: list[str]
+    baseline: str = "tests/api_surface.txt"
+    strict: bool = False
+
+
+@dataclass(frozen=True)
 class DoctorConfig:
     r"""Health-check settings for ``pyclawd doctor``.
 
@@ -397,6 +463,13 @@ class Project:
         golden: Behavior-regression oracle settings for ``pyclawd golden``, or ``None``
             (the default) when the project configures no golden suite. When ``None``
             the ``pyclawd golden`` commands self-report and exit 2. See :class:`GoldenConfig`.
+        benchmark: Performance-regression oracle settings for ``pyclawd benchmark``, or
+            ``None`` (the default) when the project configures no benchmark suite. When
+            ``None`` the ``pyclawd benchmark`` commands self-report and exit 2. See
+            :class:`BenchmarkConfig`.
+        api: Public-API surface snapshot settings for ``pyclawd api``, or ``None`` (the
+            default) when the project snapshots no surface. When ``None`` the
+            ``pyclawd api`` commands self-report and exit 2. See :class:`ApiConfig`.
         extra_doctor_checks: Optional hook returning a list of extra :class:`Check` objects,
             appended to the doctor report (e.g. project import + compiled-extension status).
             Defaults to ``None``.
@@ -423,6 +496,8 @@ class Project:
     quality: QualityConfig | None = None
     coverage: CoverageConfig | None = None
     golden: GoldenConfig | None = None
+    benchmark: BenchmarkConfig | None = None
+    api: ApiConfig | None = None
 
     extra_doctor_checks: Callable[..., list[Check]] | None = None
     root: Path | None = None

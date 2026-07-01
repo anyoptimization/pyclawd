@@ -18,6 +18,8 @@ import typer
 
 from . import __version__, run
 from .commands import _PASSTHROUGH
+from .commands import api as api_cmd
+from .commands import benchmark as benchmark_cmd
 from .commands import build as build_cmd
 from .commands import changelog as changelog_cmd
 from .commands import config as config_cmd
@@ -177,6 +179,8 @@ new_cmd.register(app)
 skills_cmd.register(app)
 docs_cmd.register(app)
 golden_cmd.register(app)
+benchmark_cmd.register(app)
+api_cmd.register(app)
 ls_cmd.register(app)
 web_cmd.register(app)
 

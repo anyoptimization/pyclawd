@@ -7,6 +7,8 @@ pure-Python project with no compile step and no docs.
 """
 
 from pyclawd import (
+    ApiConfig,
+    BenchmarkConfig,
     BuildConfig,
     CoverageConfig,
     DocsConfig,
@@ -43,16 +45,25 @@ project = Project(
         tests_dir="tests/",
         classname_prefix="tests.",
         integration_files=[],
-        # golden is its own gate (`pyclawd golden`), excluded from the unit tiers.
+        # golden + benchmark are their own gates (`pyclawd golden` / `pyclawd
+        # benchmark`), excluded from the unit tiers.
         markers={
-            "fast": "not slow and not integration and not golden",
-            "default": "not slow and not golden",
-            "all": "not golden",
+            "fast": "not slow and not integration and not golden and not benchmark",
+            "default": "not slow and not golden and not benchmark",
+            "all": "not golden and not benchmark",
         },
     ),
     coverage=CoverageConfig(source=["src/pyclawd"]),
     # Dogfood the behavior oracle: `pyclawd golden` gates `@pytest.mark.golden` tests.
     golden=GoldenConfig(),
+    # Dogfood the performance oracle: `pyclawd benchmark` times `@pytest.mark.benchmark`
+    # tests (best-of-N) and fails on a slow-down. Baselines are hardware-specific, so they
+    # live in the gitignored work dir and are never committed — bless locally with
+    # `pyclawd benchmark update`.
+    benchmark=BenchmarkConfig(),
+    # Dogfood the public-API surface oracle: `pyclawd api` proves the exported surface
+    # of src/pyclawd/ has not drifted from the committed baseline (tests/api_surface.txt).
+    api=ApiConfig(packages=["src/pyclawd"]),
     doctor=DoctorConfig(
         core_deps=["typer", "rich"],
         dev_deps=["pytest", "pytest-xdist", "pytest-cov"],

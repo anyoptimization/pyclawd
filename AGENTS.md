@@ -39,10 +39,13 @@ on `PYTHONPATH`. Bare `python` misses the env and the in-tree source.
 | Default test gate (not `slow`) | `pyclawd test run` |
 | Everything incl. `slow` | `pyclawd test all` |
 | Select tests | `pyclawd test -k <kw>` · `pyclawd test tests/path::node` |
+| Impact-scoped tests (only tests covering the diff) | `pyclawd test changed [--against REF] [--list]` (needs a context map — build once with `pyclawd coverage --context`) |
 | Fix-loop | `pyclawd test failures` → `pyclawd test fix` → `pyclawd test run` |
 | Slowest tests | `pyclawd test timings [--top N] [--slow-threshold S]` (S = list tests slower than S seconds — `slow`-marker candidates) |
-| Coverage | `pyclawd coverage [--check] [--html]` |
+| Coverage | `pyclawd coverage [--check] [--html] [--context]` (`--context` records per-test contexts → the `test changed` map) |
 | Prove behavior unchanged | `pyclawd golden [-k EXPR]` · `golden update [-k EXPR]` · `status` · `prune` · `vendor <file>` (bare pytest: `@pytest.mark.golden` + `return`; bless with `pytest --golden-update`) |
+| Prove no perf regression | `pyclawd benchmark [-k EXPR]` · `benchmark update [-k EXPR]` · `status` · `prune` (tag `@pytest.mark.benchmark`; best-of-N timing gated at a relative tolerance; bless with `pytest --benchmark-update`) |
+| Prove the public API surface unchanged | `pyclawd api` · `api update` · `api status` (static AST snapshot vs a committed text baseline; removals/signature changes fail, additions pass unless `strict`) |
 | Lint / autofix | `pyclawd lint` · `pyclawd lint --fix` · `pyclawd lint <file...>` |
 | Format / check | `pyclawd format` · `pyclawd format --check` · `pyclawd format <file...>` |
 | Type-check | `pyclawd typecheck` · `pyclawd typecheck <file...>` |
@@ -114,6 +117,38 @@ plugin into one self-contained file the project commits and registers via
 `pyclawd golden` CLI is the optional wrapper; `GoldenConfig` lets it drive the plugin
 (unset → `pyclawd golden` exits 2, but the plugin still works under bare `pytest`). Full
 doctrine in the **`pyclawd-golden`** skill.
+
+### Sibling oracles: benchmark (perf) and api (surface)
+
+golden proves a *value* unchanged; two siblings close adjacent gaps, sharing the same
+**agents compare, humans bless** workflow and the same "separate gate, excluded from the
+unit tiers" placement:
+
+- **`pyclawd benchmark`** proves the code did not get **slower**. Tag a test
+  `@pytest.mark.benchmark`; its body is timed (a few warm-ups, then best-of-N), and the
+  minimum is gated against a committed baseline with a **relative, one-sided** tolerance
+  — only a slow-down beyond `rtol` fails; a speed-up passes and is flagged for
+  re-blessing. Timing is machine-specific, so bless on a quiet machine (the bare-`pytest`
+  default even writes baselines under the gitignored pytest cache so a hardware-specific
+  number is never committed by accident). `BenchmarkConfig` drives the CLI; the
+  `@pytest.mark.benchmark` plugin auto-registers and works in bare `pytest`. Exclude the
+  `benchmark` marker from the unit tiers (`"default": "… and not benchmark"`).
+- **`pyclawd api`** proves the **public surface** unchanged — it catches an *accidental*
+  breaking change (a removed function, a renamed/reordered parameter, a changed return
+  annotation) an edit did not intend. The surface is extracted **statically** (`ast`, no
+  import → deterministic, no side effects) and diffed against one committed sorted text
+  baseline (`tests/api_surface.txt` — a `git diff` reads like an API changelog). Removals
+  and signature changes fail; pure additions pass with a note unless `ApiConfig(strict=True)`.
+
+### Impact-scoped tests: `pyclawd test changed`
+
+The tightest inner loop: run **only** the tests whose coverage touches the working diff.
+Build a per-test coverage map once (`pyclawd coverage --context`, which adds
+`--cov-context=test`), then `pyclawd test changed` reverse-maps the changed source lines
+to the covering test node ids and runs just those (`--against REF` to diff a branch,
+`--list` to preview). Honest about its blind spot: a brand-new or genuinely untested file
+has no covering test, so it is reported **loudly as uncovered** rather than silently
+skipped — rebuild the map if it is merely stale, or add tests for the new code.
 
 ## Architecture — generic core + per-project config
 

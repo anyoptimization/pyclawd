@@ -11,7 +11,28 @@ the running pyclawd has a different `major.minor`, pointing here for what change
 
 ## [Unreleased]
 
-## [0.1.1] - 2026-06-28
+### Added
+- **`pyclawd test changed`** — impact-scoped test selection. Reverse-maps the working
+  diff to the tests whose coverage intersects the changed lines and runs only those,
+  turning a whole-suite gate into a handful of targeted tests. Build the per-test
+  context map once with the new **`pyclawd coverage --context`** flag
+  (`--cov-context=test`). Changed files with no covering test (new/untested code) are
+  reported loudly, never silently skipped. `--against REF` diffs against a ref;
+  `--list` prints the impacted node ids without running.
+- **`pyclawd benchmark`** — a performance-regression oracle (sibling of `golden`). Tag
+  a test `@pytest.mark.benchmark`; its body is timed (warm-up + best-of-N) and gated
+  against a baseline at a relative tolerance — only a slow-down fails. Baselines are
+  hardware-specific, so they are **never committed**: they live in the gitignored
+  `work_dir` and `benchmark` compares against *your* last blessed run on *this*
+  machine. Subcommands `update` / `status` / `prune`; standalone pytest plugin
+  (`benchmark_plugin`) auto-registers via a `pytest11` entry point. New
+  `BenchmarkConfig`.
+- **`pyclawd api`** — a public-API surface oracle. Statically extracts (via `ast`, no
+  import) each package's public surface — `__all__` or non-underscore
+  functions/classes/methods/constants with signatures — and diffs it against a
+  committed text baseline. Removals and signature changes fail (breaking); pure
+  additions pass unless `strict`. `update` blesses, `status` shows drift. New
+  `ApiConfig`; the diff reads like an API changelog.
 
 ### Added
 - **`pyclawd docs validate`** + an automatic guardrail in `pyclawd docs build` —

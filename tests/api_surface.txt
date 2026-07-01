@@ -1,0 +1,238 @@
+pyclawd.api:SurfaceDiff
+pyclawd.api:SurfaceDiff.is_breaking(self) -> bool
+pyclawd.api:SurfaceDiff.is_empty(self) -> bool
+pyclawd.api:diff_surface(current: list[str], baseline: list[str]) -> SurfaceDiff
+pyclawd.api:extract_module(source: str, qualname: str) -> list[str]
+pyclawd.api:extract_surface(package_dirs: list[Path]) -> list[str]
+pyclawd.api:module_qualname(py_file: Path, package_dir: Path) -> str
+pyclawd.api:read_baseline(path: Path) -> list[str]
+pyclawd.api:write_baseline(path: Path, surface: list[str]) -> None
+pyclawd.benchmark:BenchmarkComparison
+pyclawd.benchmark:BenchmarkError(AssertionError)
+pyclawd.benchmark:compare_time(new_seconds: float, entry: dict[str, Any]) -> BenchmarkComparison
+pyclawd.benchmark:make_entry(seconds: float, *, rtol: float=0.25) -> dict[str, Any]
+pyclawd.benchmark:measure(call: Any, warmup: int, repeat: int) -> float
+pyclawd.benchmark_plugin:DEFAULT_MARKER
+pyclawd.benchmark_plugin:pytest_addoption(parser: pytest.Parser) -> None
+pyclawd.benchmark_plugin:pytest_configure(config: pytest.Config) -> None
+pyclawd.benchmark_plugin:pytest_pyfunc_call(pyfuncitem: pytest.Function) -> bool | None
+pyclawd.cli:app
+pyclawd.cli:doctor(json_output: bool=typer.Option(False, '--json', help='Emit JSON instead of rich table.')) -> None
+pyclawd.cli:main(config: str=typer.Option(None, '--config', help='Path to a config.py FILE or a DIRECTORY containing one (or a .pyclawd/config.py under it). Overrides PYCLAWD_CONFIG and walk-up discovery.', metavar='PATH')) -> None
+pyclawd.cli:python(ctx: typer.Context) -> None
+pyclawd.cli:root() -> None
+pyclawd.cli:version(json_output: bool=typer.Option(False, '--json', help='Emit JSON instead of text.')) -> None
+pyclawd.commands.api:register(app: typer.Typer) -> None
+pyclawd.commands.api:status() -> None
+pyclawd.commands.api:update() -> None
+pyclawd.commands.benchmark:prune() -> None
+pyclawd.commands.benchmark:register(app: typer.Typer) -> None
+pyclawd.commands.benchmark:status() -> None
+pyclawd.commands.benchmark:update(expr: str=typer.Option(None, '-k', metavar='EXPR', help='Only bless benchmark tests matching this keyword expression (pytest -k).')) -> None
+pyclawd.commands.build:clean(ext: bool=typer.Option(False, '--ext', help='Also remove compiled extension artifacts.')) -> None
+pyclawd.commands.build:compile() -> None
+pyclawd.commands.build:dist() -> None
+pyclawd.commands.build:register(app: typer.Typer) -> None
+pyclawd.commands.changelog:changelog(since: str=typer.Option(None, '--since', metavar='VERSION', help="Only entries newer than VERSION (default: the config's pyclawd_version)."), full: bool=typer.Option(False, '--full', help='Print the entire changelog (ignore --since).')) -> None
+pyclawd.commands.changelog:register(app: typer.Typer) -> None
+pyclawd.commands.config:config() -> None
+pyclawd.commands.config:register(app: typer.Typer) -> None
+pyclawd.commands.coverage:coverage(html: bool=typer.Option(False, '--html', help='Also write an HTML report to htmlcov/.'), check: bool=typer.Option(False, '--check', help='Fail if coverage is below the configured threshold (CoverageConfig.threshold).'), context: bool=typer.Option(False, '--context', help='Record per-test contexts (--cov-context=test) — builds the map `pyclawd test changed` reverse-maps the diff against.')) -> None
+pyclawd.commands.coverage:register(app: typer.Typer) -> None
+pyclawd.commands.docs:docs_app
+pyclawd.commands.docs:docs_build(all_: bool=typer.Option(False, '--all', help='Force re-execute every notebook.'), changed: bool=typer.Option(False, '--changed', help='Only pages changed vs main.'), cont: bool=typer.Option(False, '--continue', help='Render HTML even if notebooks fail (default: stop early).'), fast: bool=typer.Option(False, '--fast', help='Exclude all notebooks — fast smoke render (no execution).')) -> None
+pyclawd.commands.docs:docs_clean() -> None
+pyclawd.commands.docs:docs_compile(ctx: typer.Context) -> None
+pyclawd.commands.docs:docs_exec(page: str=typer.Argument(..., help='One page, e.g. visualization/pcp')) -> None
+pyclawd.commands.docs:docs_failures(full: bool=typer.Option(False, '--full', help='Show full tracebacks.')) -> None
+pyclawd.commands.docs:docs_render(fast: bool=typer.Option(False, '--fast', help='Exclude all notebooks — a fast smoke-render of the Sphinx pipeline (seconds).')) -> None
+pyclawd.commands.docs:docs_run(ctx: typer.Context) -> None
+pyclawd.commands.docs:docs_serve(port: int=typer.Option(8000, help='Port to serve on.'), background: bool=typer.Option(False, '--background', '-b', help='Detach and return immediately.'), bind: str=typer.Option('0.0.0.0', help='Address to bind (0.0.0.0 = reachable over LAN).')) -> None
+pyclawd.commands.docs:docs_status() -> None
+pyclawd.commands.docs:docs_timings(top: int=typer.Option(0, '--top', help='Show only the slowest N (0 = all).')) -> None
+pyclawd.commands.docs:docs_validate() -> None
+pyclawd.commands.docs:register(app: typer.Typer) -> None
+pyclawd.commands.golden:orphan_keys(store_keys: list[str], collected_nodeids: set[str]) -> list[str]
+pyclawd.commands.golden:prune() -> None
+pyclawd.commands.golden:register(app: typer.Typer) -> None
+pyclawd.commands.golden:status() -> None
+pyclawd.commands.golden:update(expr: str=typer.Option(None, '-k', metavar='EXPR', help='Only bless tests matching this keyword expression (pytest -k).')) -> None
+pyclawd.commands.golden:vendor(target: str=typer.Argument(..., help='File to vendor the self-contained golden plugin into, e.g. tests/golden_plugin.py.')) -> None
+pyclawd.commands.ls:check_descriptions(project: Project, paths: list[str] | None=None, quiet: bool=False) -> int
+pyclawd.commands.ls:describe_file(path: Path) -> str
+pyclawd.commands.ls:ls(path: str=typer.Argument(None, help="Directory to list (relative to cwd, or absolute). Defaults to the project's src_dir, then the repo root."), missing: bool=typer.Option(False, '--missing', help='Show ONLY files that have no description (the gaps to fill).'), py: bool=typer.Option(False, '--py', help='Limit the listing to .py and .pyx files.'), tracked: bool=typer.Option(False, '--tracked', help='Only git-tracked files (default also lists untracked, non-ignored files).')) -> None
+pyclawd.commands.ls:register(app: typer.Typer) -> None
+pyclawd.commands.new:new(name: str=typer.Argument(None, help='New project name. Omit to ADOPT the current repo (write ./.pyclawd/config.py).'), force: bool=typer.Option(False, '--force', help='Overwrite an existing target/config.'), pkg: str=typer.Option(None, '--pkg', help='Package import name (default: name with - -> _).'), author: str=typer.Option(None, '--author', help='Author name for new-project metadata (default: git user.name).'), email: str=typer.Option(None, '--email', help='Author email for new-project metadata (default: git user.email).'), conda_env: str=typer.Option(None, '--conda-env', help='ADOPT: conda env the project runs in (blank = none).'), tests_dir: str=typer.Option(None, '--tests-dir', help='ADOPT: tests directory.'), docs: bool=typer.Option(None, '--docs/--no-docs', help='Include a docs/ runner + DocsConfig.'), compile_step: bool=typer.Option(None, '--compile/--no-compile', help='Include a build/compile step.'), yes: bool=typer.Option(False, '--yes', '-y', help='Non-interactive — accept inferred defaults (no prompts).'), no_agent: bool=typer.Option(False, '--no-agent', help='Do not write AGENTS.md / CLAUDE.md agent guide.'), no_skills: bool=typer.Option(False, '--no-skills', help='Do not install the bundled pyclawd skills.'), dry_run: bool=typer.Option(False, '--dry-run', help='Print the component plan and exit without writing anything.'), scaffold_pyproject: bool=typer.Option(False, '--scaffold-pyproject', help='ADOPT: drop in a starter pyproject.toml (ruff/mypy/pytest) without clobbering existing [tool.*] sections — makes the gate runnable on a legacy repo.')) -> None
+pyclawd.commands.new:register(app: typer.Typer) -> None
+pyclawd.commands.quality:StepResult
+pyclawd.commands.quality:check(fix: bool=typer.Option(False, '--fix', help='Auto-fix format and lint issues before type-checking and testing.'), skip: list[str] | None=typer.Option(None, '--skip', help='Skip a step by name (repeatable). e.g. --skip test --skip typecheck.'), fail_fast: bool=typer.Option(False, '--fail-fast', help='Stop at the first failing step instead of running all quality steps.'), save_logs: bool=typer.Option(False, '--log', help="Tee each quality step's output to a log file (default: inline only)."), json_output: bool=typer.Option(False, '--json', help='Emit a machine-readable per-step result (implies quality-only unless --test).'), changed: bool=typer.Option(False, '--changed', help='Scope to source files changed vs --against (default HEAD) instead of paths.'), against: str=typer.Option('HEAD', '--against', help='Git ref --changed diffs against (e.g. HEAD, main).'), with_test: bool=typer.Option(False, '--test', help='Run the whole-suite test step even when scoped to paths/--changed/--json.'), paths: list[str] | None=typer.Argument(None, help='Specific files or directories to scope quality steps to (default: whole project). Path-scoped checks are quality-only unless --test.')) -> None
+pyclawd.commands.quality:format(check: bool=typer.Option(False, '--check', help='Check formatting without writing (format_check_cmd).'), paths: list[str] | None=typer.Argument(None, help='Specific files or directories to format (default: whole project).')) -> None
+pyclawd.commands.quality:lint(fix: bool=typer.Option(False, '--fix', help='Apply autofixes (lint_fix_cmd).'), paths: list[str] | None=typer.Argument(None, help='Specific files or directories to lint (default: whole project).')) -> None
+pyclawd.commands.quality:register(app: typer.Typer) -> None
+pyclawd.commands.quality:typecheck(paths: list[str] | None=typer.Argument(None, help='Specific files or directories to type-check (default: whole project).')) -> None
+pyclawd.commands.skills:install(target: str=typer.Option(None, '--target', metavar='DIR', help='Install destination (default: ~/.claude/skills — user scope).'), symlink: bool=typer.Option(False, '--symlink', help='Symlink each skill dir instead of copying it.'), force: bool=typer.Option(False, '--force', help='Overwrite an existing destination instead of skipping it.'), prune: bool=typer.Option(False, '--prune', help='After installing, also remove orphaned skills dropped from this bundle.')) -> None
+pyclawd.commands.skills:list_() -> None
+pyclawd.commands.skills:prune(target: str=typer.Option(None, '--target', metavar='DIR', help='Directory to prune (default: ~/.claude/skills — user scope).'), dry_run: bool=typer.Option(False, '--dry-run', help='List the orphans that would be removed without deleting them.')) -> None
+pyclawd.commands.skills:register(app: typer.Typer) -> None
+pyclawd.commands.test:pytest(ctx: typer.Context) -> None
+pyclawd.commands.test:register(app: typer.Typer) -> None
+pyclawd.commands.test:test(ctx: typer.Context) -> None
+pyclawd.commands.web:DEFAULT_PORT
+pyclawd.commands.web:add(path: str=typer.Argument(..., help='Path to a git repository.'), name: str=typer.Option(None, '--name', '-n', help='Override the project name.')) -> None
+pyclawd.commands.web:list_projects() -> None
+pyclawd.commands.web:register(app: typer.Typer) -> None
+pyclawd.commands.web:remove(name: str=typer.Argument(..., help='Project name to unregister.')) -> None
+pyclawd.commands.web:serve(host: str=typer.Option('127.0.0.1', help='Bind address (0.0.0.0 to expose on the LAN).'), port: int=typer.Option(DEFAULT_PORT, '--port', '-p', help='Port to listen on.'), repo: str=typer.Option(None, '--repo', '-r', help='Register this repo and pre-select it on load.')) -> None
+pyclawd.commands.web:web_app
+pyclawd.discovery:CONFIG_DIR
+pyclawd.discovery:CONFIG_FILE
+pyclawd.discovery:ConfigError(Exception)
+pyclawd.discovery:DEFAULT_DISCOVERY: tuple[str, ...]
+pyclawd.discovery:DISCOVERY_ENV
+pyclawd.discovery:ENV_VAR
+pyclawd.discovery:find_config_file(start: str | Path | None=None, *, config: str | Path | None=None) -> Path | None
+pyclawd.discovery:load_project(start: str | Path | None=None, *, config: str | Path | None=None) -> Project | None
+pyclawd.discovery:set_config_override(target: str | Path | None) -> None
+pyclawd.doctor:collect(project: Project | None=None) -> list[Check]
+pyclawd.doctor:dump_json(project: Project | None=None) -> int
+pyclawd.doctor:run_doctor() -> int
+pyclawd.golden:Canonical
+pyclawd.golden:Comparison
+pyclawd.golden:GoldenError(AssertionError)
+pyclawd.golden:GoldenStore
+pyclawd.golden:GoldenStore.__init__(self, path: Path) -> None
+pyclawd.golden:GoldenStore.get(self, key: str) -> dict[str, Any] | None
+pyclawd.golden:GoldenStore.is_empty(self) -> bool
+pyclawd.golden:GoldenStore.keys(self) -> list[str]
+pyclawd.golden:GoldenStore.remove(self, key: str) -> bool
+pyclawd.golden:GoldenStore.save(self) -> None
+pyclawd.golden:GoldenStore.set(self, key: str, entry: dict[str, Any]) -> None
+pyclawd.golden:canonicalize(value: Any, precision: int) -> Canonical
+pyclawd.golden:compare(new_value: Any, entry: dict[str, Any]) -> Comparison
+pyclawd.golden:digest(canonical: Canonical) -> str
+pyclawd.golden:iter_baseline_files(baseline_dir: Path) -> list[Path]
+pyclawd.golden:make_entry(value: Any, *, precision: int=10, rtol: float=1e-09, atol: float=1e-12) -> dict[str, Any]
+pyclawd.golden:module_baseline_path(baseline_dir: Path, module_stem: str) -> Path
+pyclawd.golden:values_close(a: Canonical, b: Canonical, rtol: float, atol: float) -> bool
+pyclawd.impact:CoverageUnavailable(RuntimeError)
+pyclawd.impact:ImpactResult
+pyclawd.impact:has_test_contexts(db_path: Path) -> bool
+pyclawd.impact:impacted_tests(db_path: Path, root: Path, changed: dict[str, set[int]]) -> ImpactResult
+pyclawd.impact:strip_context_phase(context: str) -> str
+pyclawd.logs:WORK_ENV
+pyclawd.logs:category_dir(category: str, project: Project | None=None) -> Path
+pyclawd.logs:new_run(category: str, project: Project | None=None) -> tuple[str, Path]
+pyclawd.logs:run_finish(rid: str, log: Path, code: int, t0: float) -> None
+pyclawd.logs:run_id() -> str
+pyclawd.logs:run_logged(cmd: list[str], log: Path, root: Path, env: dict[str, str] | None=None) -> int
+pyclawd.logs:run_start(label: str, category: str, project: Project | None=None) -> tuple[str, Path, float]
+pyclawd.logs:tee(cmd: list[str], log: Path, root: Path, env: dict[str, str] | None=None) -> int
+pyclawd.logs:work_root(project: Project | None=None) -> Path
+pyclawd.project:ApiConfig
+pyclawd.project:BenchmarkConfig
+pyclawd.project:BuildConfig
+pyclawd.project:Check
+pyclawd.project:CoverageConfig
+pyclawd.project:DescriptionConfig
+pyclawd.project:DocsConfig
+pyclawd.project:DoctorConfig
+pyclawd.project:FAIL
+pyclawd.project:GoldenConfig
+pyclawd.project:OK
+pyclawd.project:Project
+pyclawd.project:Project.path(self, *rel: str) -> Path
+pyclawd.project:QualityConfig
+pyclawd.project:TestConfig
+pyclawd.project:WARN
+pyclawd.pytest_plugin:DEFAULT_DIR
+pyclawd.pytest_plugin:DEFAULT_MARKER
+pyclawd.pytest_plugin:GoldenIdWarning(UserWarning)
+pyclawd.pytest_plugin:auto_argnames(node: pytest.Item) -> set[str]
+pyclawd.pytest_plugin:derive_node_key(nodeid: str) -> str
+pyclawd.pytest_plugin:looks_autogenerated(pid: str, argnames: Iterable[str]) -> bool
+pyclawd.pytest_plugin:param_id(node_key: str) -> str | None
+pyclawd.pytest_plugin:pytest_addoption(parser: pytest.Parser) -> None
+pyclawd.pytest_plugin:pytest_configure(config: pytest.Config) -> None
+pyclawd.pytest_plugin:pytest_pyfunc_call(pyfuncitem: pytest.Function) -> bool | None
+pyclawd.repo:changed_files(root: Path, against: str='HEAD') -> list[str]
+pyclawd.repo:changed_line_map(root: Path, against: str='HEAD') -> dict[str, set[int]]
+pyclawd.repo:find_repo_root(start: str | Path | None=None) -> Path | None
+pyclawd.run:PYTHON_ENV
+pyclawd.run:has_target(args: list[str]) -> bool
+pyclawd.run:has_xdist(project: Project | None=None) -> bool
+pyclawd.run:load_project_or_exit() -> Project
+pyclawd.run:pytest(args: list[str], default_markers: str | None=None, tests_dir: str | None=None) -> int
+pyclawd.run:python(args: list[str]) -> int
+pyclawd.run:python_prefix(project: Project | None=None) -> list[str]
+pyclawd.run:repo_env(root: Path) -> dict[str, str]
+pyclawd.run:repo_root_or_exit() -> Path
+pyclawd.run:run(cmd: list[str], root: Path | None=None) -> int
+pyclawd.skills_install:SKILL_PREFIX
+pyclawd.skills_install:bundled_skill_names() -> list[str]
+pyclawd.skills_install:drifted_installed_skills(target: Path | None=None) -> list[str]
+pyclawd.skills_install:install_skills(target: Path | None=None, *, symlink: bool=False, force: bool=False) -> tuple[list[str], list[str], list[str]]
+pyclawd.skills_install:orphaned_installed_skills(target: Path | None=None) -> list[str]
+pyclawd.skills_install:prune_installed_skills(target: Path | None=None) -> list[str]
+pyclawd.skills_install:skill_description(name: str) -> str
+pyclawd.skills_install:user_skills_dir() -> Path
+pyclawd.tests:dispatch(verb: str, args: list[str]) -> int
+pyclawd.tests:fix(extra_args: list[str], project: Project) -> int
+pyclawd.tests:print_failures(project: Project) -> int
+pyclawd.tests:print_timings(project: Project, top: int=25, slow_threshold: float | None=None) -> int
+pyclawd.tests:run_changed(project: Project, args: list[str], against: str, list_only: bool) -> int
+pyclawd.tests:run_suite(extra_args: list[str], markers: str, label: str, project: Project, jobs: str | None=None) -> int
+pyclawd.tests:tier_markers(project: Project, tier: str) -> str
+pyclawd.web.app:AddBody(BaseModel)
+pyclawd.web.app:AgentBody(BaseModel)
+pyclawd.web.app:ConfigBody(BaseModel)
+pyclawd.web.app:DeleteFileBody(BaseModel)
+pyclawd.web.app:RemoveBody(BaseModel)
+pyclawd.web.app:RunBody(BaseModel)
+pyclawd.web.app:SaveFileBody(BaseModel)
+pyclawd.web.app:SendBody(BaseModel)
+pyclawd.web.app:StarBody(BaseModel)
+pyclawd.web.app:create_app(default_project: str | None=None, registry: Registry | None=None) -> FastAPI
+pyclawd.web.git:ChangeStatus(str, Enum)
+pyclawd.web.git:Commit
+pyclawd.web.git:DiffLine
+pyclawd.web.git:FileChange
+pyclawd.web.git:FileView
+pyclawd.web.git:GitRepo
+pyclawd.web.git:GitRepo.all_files(self, base: Ref, target: Ref | None=None) -> list[FileChange]
+pyclawd.web.git:GitRepo.changes(self, base: Ref, target: Ref | None=None) -> list[FileChange]
+pyclawd.web.git:GitRepo.contains(self, rel_path: str) -> bool
+pyclawd.web.git:GitRepo.delete_file(self, path: str) -> bool
+pyclawd.web.git:GitRepo.file_view(self, base: Ref, path: str, mode: str='diff', target: Ref | None=None) -> FileView
+pyclawd.web.git:GitRepo.is_repo(self) -> bool
+pyclawd.web.git:GitRepo.refs(self) -> RefInfo
+pyclawd.web.git:GitRepo.save_file(self, path: str, content: str) -> None
+pyclawd.web.git:GitRepo.state_token(self, base: Ref, target: Ref | None=None) -> str
+pyclawd.web.git:GitRepo.status(self) -> RepoStatus
+pyclawd.web.git:GitRepo.tracked_paths(self) -> list[str]
+pyclawd.web.git:GitRepo.working_text(self, path: str) -> str
+pyclawd.web.git:Hunk
+pyclawd.web.git:LineKind(str, Enum)
+pyclawd.web.git:Ref
+pyclawd.web.git:RefInfo
+pyclawd.web.git:RepoStatus
+pyclawd.web.git:WORKING_TREE: Final
+pyclawd.web.git:is_working_tree(ref: Ref | None) -> bool
+pyclawd.web.git:numstat_path(rest: str) -> str
+pyclawd.web.git:parse_hunks(diff_text: str) -> list[Hunk] | None
+pyclawd.web.highlight:CLASS_PREFIX
+pyclawd.web.highlight:highlight_lines(path: str, source: list[str]) -> list[str] | None
+pyclawd.web.registry:DEFAULT_ROOTS: tuple[str, ...]
+pyclawd.web.registry:ProjectEntry
+pyclawd.web.registry:Registry
+pyclawd.web.registry:Registry.add(self, path: str, name: str | None=None) -> str
+pyclawd.web.registry:Registry.default(cls) -> Registry
+pyclawd.web.registry:Registry.projects(self) -> dict[str, ProjectEntry]
+pyclawd.web.registry:Registry.remove(self, name: str) -> bool
+pyclawd.web.registry:Registry.resolve(self, name: str | None) -> str | None
+pyclawd.web.registry:Registry.roots(self) -> list[Path]
+pyclawd.web.registry:Registry.set_roots(self, roots: list[str]) -> list[str]
+pyclawd.web.registry:Registry.set_star(self, name: str, starred: bool) -> None
+pyclawd.web.sessions:Pane
+pyclawd.web.sessions:list_panes(path_to_project: Mapping[str, str] | None=None) -> list[Pane]
+pyclawd.web.sessions:send_to_pane(target: str, text: str, *, submit: bool=False, focus: bool=False, known_targets: set[str] | None=None) -> bool
+pyclawd:__version__

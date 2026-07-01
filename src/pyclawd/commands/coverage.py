@@ -40,12 +40,20 @@ def coverage(
         "--check",
         help="Fail if coverage is below the configured threshold (CoverageConfig.threshold).",
     ),
+    context: bool = typer.Option(
+        False,
+        "--context",
+        help="Record per-test contexts (--cov-context=test) — builds the map "
+        "`pyclawd test changed` reverse-maps the diff against.",
+    ),
 ) -> None:
     """Run tests with coverage measurement and print a term-missing report.
 
     Uses pytest-cov to measure the packages listed in ``coverage.source``.
     Add ``--html`` to also write an HTML report under ``htmlcov/``.
     Add ``--check`` to fail when coverage drops below ``coverage.threshold``.
+    Add ``--context`` to record per-test contexts so ``pyclawd test changed`` can
+    map the working diff back to the tests that cover it.
     """
     project = run.load_project_or_exit()
     cov = _coverage_or_exit(project)
@@ -62,6 +70,9 @@ def coverage(
 
     if cov.branch:
         cmd += ["--cov-branch"]
+
+    if context:
+        cmd += ["--cov-context=test"]
 
     if html:
         cmd += ["--cov-report=html"]

@@ -23,10 +23,12 @@ import argparse
 import datetime
 import hashlib
 import json
+import re
 import sys
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
+from . import repo
 from .logs import category_dir, run_id, tee
 from .project import Project
 from .run import (
@@ -316,6 +318,110 @@ def fix(extra_args: list[str], project: Project) -> int:
     return run(cmd, root)
 
 
+# ---- changed: impact-scoped test selection ----------------------------------
+
+
+def _coverage_db(root: Path) -> Path:
+    """The default coverage data file pytest-cov writes at the repo root."""
+    return root / ".coverage"
+
+
+def _source_changed_lines(project: Project, root: Path, against: str) -> dict[str, set[int]]:
+    """Changed-line map restricted to source files (by ``descriptions.include``).
+
+    Reuses ``project.descriptions.include`` (default ``.py``/``.pyx``) as the
+    definition of "source file", so changes to ``.md``/``.toml`` never enter the
+    impact query.
+    """
+    includes = [re.compile(p) for p in project.descriptions.include]
+    changed = repo.changed_line_map(root, against)
+    if not includes:
+        return changed
+    return {f: lines for f, lines in changed.items() if any(p.search(f) for p in includes)}
+
+
+def run_changed(project: Project, args: list[str], against: str, list_only: bool) -> int:
+    """Run only the tests whose coverage intersects the working diff (impact selection).
+
+    Reads the per-test coverage contexts (built with ``--cov-context=test``) and
+    reverse-maps the changed source lines to the tests that cover them. Files whose
+    changed lines no test covers — brand-new or genuinely untested code — are reported
+    loudly rather than silently skipped. With *list_only* the impacted node ids are
+    printed and nothing is run.
+
+    Args:
+        project: The loaded project.
+        args: Extra pytest args forwarded to the run (ignored under *list_only*).
+        against: The git ref to diff against.
+        list_only: When True, print the impacted node ids and run nothing.
+
+    Returns:
+        A process exit code: pytest's own when tests run, else ``0`` (nothing to run)
+        or ``2`` (no usable coverage map — actionable message printed).
+    """
+    from .impact import CoverageUnavailable, has_test_contexts, impacted_tests
+
+    root = repo_root_or_exit()
+    db = _coverage_db(root)
+    if not db.exists():
+        print(
+            "✗ no coverage map found (.coverage). Build it once with\n"
+            "    pyclawd coverage --context\n"
+            "then edit and re-run `pyclawd test changed`.",
+            file=sys.stderr,
+        )
+        return 2
+    if not has_test_contexts(db):
+        print(
+            "✗ coverage map has no per-test contexts. Rebuild it with\n"
+            "    pyclawd coverage --context\n"
+            "(the plain `pyclawd coverage` does not record contexts).",
+            file=sys.stderr,
+        )
+        return 2
+
+    changed = _source_changed_lines(project, root, against)
+    if not changed:
+        print(f"✅ no changed source files vs {against} — nothing to run.")
+        return 0
+
+    try:
+        result = impacted_tests(db, root, changed)
+    except CoverageUnavailable as exc:
+        print(f"✗ {exc}", file=sys.stderr)
+        return 2
+
+    if result.uncovered:
+        print(
+            f"⚠ {len(result.uncovered)} changed file(s) have NO covering test in the map "
+            "(new or untested code — the impact set cannot verify them):"
+        )
+        for path in sorted(result.uncovered):
+            print(f"     {path}")
+        print(
+            "  rebuild the map (`pyclawd coverage --context`) if it is merely stale, "
+            "or add tests for genuinely new code."
+        )
+
+    nodeids = sorted(result.nodeids)
+    if not nodeids:
+        print(
+            "• no impacted tests found for the changed lines "
+            "(see the uncovered note above, if any)."
+        )
+        return 0
+
+    print(f"→ {len(nodeids)} impacted test(s) from {len(result.covered)} changed file(s):")
+    for nid in nodeids:
+        print(f"     {nid}")
+    if list_only:
+        return 0
+
+    cmd = [*python_prefix(project), "-m", "pytest", "-q", "-rfE", *nodeids, *args]
+    print()
+    return run(cmd, root)
+
+
 # ---- dispatch ---------------------------------------------------------------
 
 
@@ -374,10 +480,40 @@ def _parse_timings_args(args: list[str]) -> tuple[int, float | None]:
     return ns.top, ns.slow_threshold
 
 
+def _parse_changed_args(args: list[str]) -> tuple[str, bool, list[str]]:
+    """Parse the ``changed`` verb's ``--against`` / ``--list`` flags.
+
+    Unrecognised tokens are returned as *extra* pytest args (forwarded to the run),
+    so ``pyclawd test changed -x`` still works. Accepts both ``--against main`` and
+    ``--against=main``.
+
+    Args:
+        args: The tokens after the ``changed`` verb.
+
+    Returns:
+        The parsed ``(against, list_only, extra_pytest_args)`` triple.
+
+    Raises:
+        _TimingsArgError: If a flag is malformed.
+    """
+    parser = _TimingsParser(prog="pyclawd test changed", add_help=False)
+    parser.add_argument("--against", default="HEAD")
+    parser.add_argument("--list", dest="list_only", action="store_true")
+    ns, extra = parser.parse_known_args(args)
+    return ns.against, ns.list_only, extra
+
+
 def dispatch(verb: str, args: list[str]) -> int:
-    """Route a test sub-command verb (run/fast/all/failures/timings/fix) to its handler."""
+    """Route a test sub-command verb (run/fast/all/changed/failures/timings/fix) to its handler."""
     project = load_project_or_exit()
     jobs = project.test.jobs
+    if verb == "changed":
+        try:
+            against, list_only, extra = _parse_changed_args(args)
+        except _TimingsArgError as exc:
+            print(f"✗ {exc}", file=sys.stderr)
+            return 2
+        return run_changed(project, extra, against, list_only)
     if verb == "run":
         return run_suite(args, tier_markers(project, "default"), "run", project, jobs=jobs)
     if verb == "fast":

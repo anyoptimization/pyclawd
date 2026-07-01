@@ -13,7 +13,7 @@ from . import _PASSTHROUGH
 
 # The built-in pipeline sub-verbs (logged/instrumented runners + views). Anything
 # else leading the args is either a config-defined category tier or pytest passthrough.
-_SUB_VERBS = ("run", "fast", "all", "failures", "timings", "fix")
+_SUB_VERBS = ("run", "fast", "all", "changed", "failures", "timings", "fix")
 
 
 def _looks_like_pytest_arg(token: str) -> bool:
@@ -45,6 +45,8 @@ def test(ctx: typer.Context) -> None:
       pyclawd test run            full default suite (not slow) → run-id log + timing/failure tables
       pyclawd test fast           the <30s smoke tier (not slow/integration), xdist (-n auto)
       pyclawd test all            everything, including `slow`
+      pyclawd test changed        only tests whose coverage hits the working diff
+                                  (impact selection; --against REF, --list to preview)
       pyclawd test failures       the fix-list (pytest lastfailed cache)
       pyclawd test timings [--top N]   slowest tests from the last run
       pyclawd test fix            debug primitive: rerun --lf -x, stream the next failure

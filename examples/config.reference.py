@@ -155,6 +155,31 @@ project = Project(
     #       rtol=1e-9,                    # default relative tolerance (the gate)
     #       atol=1e-12,                   # default absolute tolerance
     #   ),
+    # --- benchmark (performance-regression oracle — opt-in) --------------- #
+    # golden proves a value unchanged; benchmark proves the code did not get *slower*.
+    # Tag a test `@pytest.mark.benchmark`; its body is timed (best-of-N) and gated
+    # against a committed baseline with a relative, one-sided tolerance (only a
+    # slow-down beyond `rtol` fails; a speed-up passes). Its own gate — exclude the
+    # `benchmark` marker from the unit tiers above. Uncomment (also add `BenchmarkConfig`
+    # to the imports). Agents compare (`pyclawd benchmark`); humans bless (`benchmark update`).
+    #   benchmark=BenchmarkConfig(
+    #       baseline_dir="tests/benchmark",  # committed baseline JSON (one per module)
+    #       marker="benchmark",              # selects @pytest.mark.benchmark tests
+    #       warmup=1,                        # untimed warm-up calls before measurement
+    #       repeat=5,                        # timed repetitions; the minimum is recorded
+    #       rtol=0.25,                       # relative slow-down tolerance (the gate)
+    #   ),
+    # --- api (public-surface oracle — opt-in) ----------------------------- #
+    # Proves the public API surface has not drifted — catches an *accidental* breaking
+    # change (removed function, renamed/reordered param). The surface is extracted
+    # statically (ast, no import) and diffed against one committed text baseline.
+    # Removals/signature changes fail; additions pass unless `strict=True`. Uncomment
+    # (also add `ApiConfig` to the imports). Agents compare (`pyclawd api`); humans bless.
+    #   api=ApiConfig(
+    #       packages=["acme"],               # package dirs whose public surface is snapshotted
+    #       baseline="tests/api_surface.txt",  # committed sorted text baseline
+    #       strict=False,                    # True → additions also fail the gate
+    #   ),
     # --- doctor (env health-check) ---------------------------------------- #
     doctor=DoctorConfig(
         # Imports that MUST succeed (a missing one is a FAIL).

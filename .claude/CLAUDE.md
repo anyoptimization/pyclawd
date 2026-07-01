@@ -46,7 +46,8 @@ crashing. So `pyclawd --help` and `pyclawd doctor` always work.
   - `project.py` — the frozen-dataclass config model (`Project` + nested `*Config`).
   - `discovery.py` — locate/load `.pyclawd/config.py` (`--config` › `PYCLAWD_CONFIG` › walk-up).
   - `cli.py` — the Typer app; a thin assembler that registers command groups.
-  - `commands/` — one module per group (`test`, `quality`, `build`, `docs`, `new`, `skills`).
+  - `commands/` — one module per group (`test`, `quality`, `build`, `docs`, `new`, `skills`, `benchmark`, `api`).
+  - `api.py` / `impact.py` / `benchmark.py` — the three oracle/feedback engines: public-surface AST snapshot (`pyclawd api`), diff→test coverage reverse-map (`pyclawd test changed`), and best-of-N timing gate (`pyclawd benchmark`). `benchmark_plugin.py` is benchmark's standalone pytest plugin (sibling of `pytest_plugin.py`).
   - `run.py` / `tests.py` / `logs.py` / `doctor.py` — the subprocess + pipeline logic.
   - `scaffold/templates/` — `*.tmpl` files rendered by `pyclawd new`.
   - `skills/` — the bundled `pyclawd-*` Claude Code skills.

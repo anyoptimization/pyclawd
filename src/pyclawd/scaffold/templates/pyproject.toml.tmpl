@@ -101,6 +101,9 @@ markers = [
     # Uncomment when you opt into the golden behavior-regression oracle
     # (set `golden=GoldenConfig()` in .pyclawd/config.py — see `pyclawd-golden`):
     # "golden: behavior-regression snapshot test (compared via `pyclawd golden`)",
+    # Uncomment when you opt into the benchmark performance-regression oracle
+    # (set `benchmark=BenchmarkConfig()` in .pyclawd/config.py):
+    # "benchmark: performance-regression timing test (gated via `pyclawd benchmark`)",
 ]
 filterwarnings = [
     "error",

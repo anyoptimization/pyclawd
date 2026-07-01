@@ -37,11 +37,13 @@ Issues = "https://github.com/anyoptimization/pyclawd/issues"
 [project.scripts]
 pyclawd = "pyclawd.cli:app"
 
-# Auto-register the golden pytest plugin: a project installs pyclawd and
-# `@pytest.mark.golden` + return-value snapshots work in bare pytest — no conftest
-# line, no .pyclawd/config.py, no imports in test files.
+# Auto-register the golden + benchmark pytest plugins: a project installs pyclawd and
+# `@pytest.mark.golden` (return-value snapshots) and `@pytest.mark.benchmark` (best-of-N
+# timings) work in bare pytest — no conftest line, no .pyclawd/config.py, no imports
+# in test files. Each plugin only acts on its own marker.
 [project.entry-points.pytest11]
 golden = "pyclawd.pytest_plugin"
+benchmark = "pyclawd.benchmark_plugin"
 
 # Dev tooling lives in a PEP 735 dependency group — matching what `pyclawd new`
 # scaffolds (the scaffold teaches `[dependency-groups]`, so the dogfood matches).

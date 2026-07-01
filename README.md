@@ -124,7 +124,7 @@ project = Project(
 )
 ```
 
-The nested configs (`QualityConfig`, `TestConfig`, `DocsConfig`, `DoctorConfig`, plus the optional `BuildConfig` via `project.build` and `GoldenConfig`) each gate their command group: leave one out and those commands self-report as unconfigured instead of crashing (e.g. `build=None` → `compile`/`dist`/`clean` exit 2).
+The nested configs (`QualityConfig`, `TestConfig`, `DocsConfig`, `DoctorConfig`, plus the optional `BuildConfig` via `project.build`, `GoldenConfig`, `BenchmarkConfig`, and `ApiConfig`) each gate their command group: leave one out and those commands self-report as unconfigured instead of crashing (e.g. `build=None` → `compile`/`dist`/`clean` exit 2). Three oracles complement `pyclawd check` (which proves code *clean*): `golden` proves observable values are *unchanged*, `benchmark` proves code did not get *slower* (best-of-N timings vs a gitignored, machine-local baseline), and `api` proves the public surface has not *drifted* (a static AST snapshot vs a committed text baseline). A fourth speed-up, `pyclawd test changed`, runs only the tests whose coverage intersects the working diff (build the map once with `pyclawd coverage --context`).
 
 Two worked examples bracket the range:
 
