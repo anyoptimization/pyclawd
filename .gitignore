@@ -230,6 +230,12 @@ __marimo__/
 # Only the Node install dir is ignored.
 src/pyclawd/web_frontend/node_modules/
 
+# The generic `lib/` packaging pattern near the top of this file (top-level build
+# output) is unanchored, so it silently swallows the frontend's own src/lib/ TS
+# source (utils.ts, status.ts) — without which a fresh clone can't `npm run build`.
+# Re-include that source tree explicitly.
+!src/pyclawd/web_frontend/src/lib/
+
 # Repo-root convenience symlink → src/pyclawd/skills (real tree is the package
 # data shipped in the wheel). Untracked so it cannot shadow that tree in the sdist.
 /skills
