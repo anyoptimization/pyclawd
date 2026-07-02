@@ -274,14 +274,17 @@ function RenderedFile({ project, path, kind }: { project: string; path: string; 
     );
   }
   // HTML: render in a sandboxed iframe with no allowances → scripts and same-origin
-  // access are blocked, so viewing a repo's .html file is safe.
+  // access are blocked, so viewing a repo's .html file is safe. The iframe is framed
+  // as a white "page" on a padded backdrop that fills the panel's width and height.
   return (
-    <iframe
-      title={`rendered ${path}`}
-      sandbox=""
-      srcDoc={data.content}
-      className="h-[calc(100vh-150px)] w-full border-0 bg-white"
-    />
+    <div className="h-[calc(100vh-92px)] w-full bg-panel2 p-4">
+      <iframe
+        title={`rendered ${path}`}
+        sandbox=""
+        srcDoc={data.content}
+        className="block h-full w-full rounded-md border border-line bg-white shadow-sm"
+      />
+    </div>
   );
 }
 
