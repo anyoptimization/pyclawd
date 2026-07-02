@@ -31,6 +31,8 @@ export interface Settings {
   tabWidth: number;
   sendSubmit: boolean;
   sendFocus: boolean;
+  /** Sticky Source/Rendered choice for renderable files (persists until changed). */
+  renderMode: "source" | "rendered";
 }
 
 const DEFAULTS: PerProject = {
@@ -42,7 +44,12 @@ const DEFAULTS: PerProject = {
   selected: null,
 };
 
-const SETTINGS_DEFAULTS: Settings = { tabWidth: 4, sendSubmit: false, sendFocus: false };
+const SETTINGS_DEFAULTS: Settings = {
+  tabWidth: 4,
+  sendSubmit: false,
+  sendFocus: false,
+  renderMode: "source",
+};
 
 function load(): Persisted {
   const base: Persisted = { project: null, session: null, pp: {}, staged: {}, settings: SETTINGS_DEFAULTS };

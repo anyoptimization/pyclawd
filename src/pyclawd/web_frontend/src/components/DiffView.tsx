@@ -4,6 +4,8 @@
 // affordance and line numbers on BOTH the old (left) and new (right) sides.
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 
 import { api } from "@/api";
 import { Markdown } from "@/components/Markdown";
@@ -48,18 +50,18 @@ function anchor(line: DiffLine): Anchor | null {
 }
 
 export function DiffView({ view }: { view: FileView }) {
-  const { layout, project, selected, staged, scrollTo, setScrollTo, selectFile } = useStore();
+  const { layout, project, selected, staged, scrollTo, setScrollTo, selectFile, settings, setSettings } =
+    useStore();
   const [composing, setComposing] = useState<Composing>(null);
   const [editing, setEditing] = useState<string | null>(null); // draft content, or null
-  const [render, setRender] = useState<"source" | "rendered">("source");
   const [busy, setBusy] = useState(false);
   const qc = useQueryClient();
 
-  // Drop any open composer / editor and reset to the source view when switching files.
+  // Drop any open composer / editor when switching files. The Source/Rendered choice
+  // is a sticky global setting, so it is deliberately NOT reset here.
   useEffect(() => {
     setComposing(null);
     setEditing(null);
-    setRender("source");
   }, [selected]);
 
   const refresh = () => {
@@ -123,7 +125,7 @@ export function DiffView({ view }: { view: FileView }) {
   // preview is read-only — comments are line-anchored, which only the source has — so
   // flip back to Source to leave a comment.
   const renderable = renderableKind(selected);
-  const showRendered = renderable !== null && render === "rendered";
+  const showRendered = renderable !== null && settings.renderMode === "rendered";
 
   let body: React.ReactNode;
   if (showRendered && project && selected) {
@@ -153,7 +155,12 @@ export function DiffView({ view }: { view: FileView }) {
           </span>
         )}
         <span className="flex-1" />
-        {renderable && editing === null && <ViewToggle value={render} onChange={setRender} />}
+        {renderable && editing === null && (
+          <ViewToggle
+            value={settings.renderMode}
+            onChange={(v) => setSettings({ renderMode: v })}
+          />
+        )}
         {editing !== null ? (
           <>
             <HeaderBtn onClick={saveEdit} disabled={busy} tone="accent">
@@ -267,11 +274,7 @@ function RenderedFile({ project, path, kind }: { project: string; path: string; 
   if (error || !data) return <div className="p-12 text-center text-del">Could not load file.</div>;
 
   if (kind === "md") {
-    return (
-      <div className="mx-auto max-w-3xl px-6 py-6 text-[13.5px]">
-        <Markdown>{data.content}</Markdown>
-      </div>
-    );
+    return <RenderedMarkdown content={data.content} />;
   }
   // HTML: render in a sandboxed iframe with no allowances → scripts and same-origin
   // access are blocked, so viewing a repo's .html file is safe. The iframe is framed
@@ -284,6 +287,90 @@ function RenderedFile({ project, path, kind }: { project: string; path: string; 
         srcDoc={data.content}
         className="block h-full w-full rounded-md border border-line bg-white shadow-sm"
       />
+    </div>
+  );
+}
+
+/** A minimal hast node shape (react-markdown's rehype tree) for the line-stamp plugin. */
+interface HastNode {
+  type: string;
+  position?: { start?: { line?: number } };
+  properties?: Record<string, unknown>;
+  children?: HastNode[];
+}
+
+/** A rehype plugin: stamp each TOP-LEVEL block with its markdown source line as
+ *  `data-line`, so a click in the rendered view anchors a comment to that source
+ *  line — round-tripping with the line-anchored comment model the Source view uses. */
+function rehypeTopLevelLines() {
+  return (tree: HastNode) => {
+    for (const node of tree.children ?? []) {
+      const line = node.position?.start?.line;
+      if (node.type === "element" && line) {
+        node.properties = node.properties ?? {};
+        node.properties.dataLine = String(line);
+      }
+    }
+  };
+}
+
+/** Rendered markdown that is also *commentable*: click any block to anchor a comment
+ *  to its source line. Comments stage into the same store as Source-view line comments
+ *  (side "new"), so they appear in the Review tray and in Source. Blocks that already
+ *  carry a comment are marked. */
+function RenderedMarkdown({ content }: { content: string }) {
+  const { selected, staged } = useStore();
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [active, setActive] = useState<{ line: number; code: string; top: number } | null>(null);
+
+  const notesFor = (line: number) =>
+    staged.filter((c) => c.file === selected && c.side === "new" && c.line === line);
+
+  const onClick = (e: React.MouseEvent<HTMLDivElement>) => {
+    const block = (e.target as HTMLElement).closest<HTMLElement>("[data-line]");
+    const root = containerRef.current;
+    if (!block || !root || !root.contains(block)) return;
+    const line = Number(block.dataset.line);
+    if (!line) return;
+    setActive({
+      line,
+      code: (block.textContent ?? "").trim().slice(0, 120),
+      top: block.offsetTop + block.offsetHeight + 4,
+    });
+  };
+
+  // Mark blocks that already carry a comment (a left accent bar), on every render.
+  useEffect(() => {
+    const root = containerRef.current;
+    if (!root) return;
+    root.querySelectorAll<HTMLElement>("[data-line]").forEach((el) => {
+      el.classList.toggle("md-commented", notesFor(Number(el.dataset.line)).length > 0);
+    });
+  });
+
+  return (
+    <div className="relative mx-auto max-w-3xl px-6 py-6 text-[13.5px]">
+      <div
+        ref={containerRef}
+        onClick={onClick}
+        className="md-body md-render"
+        title="Click a block to comment on its source line"
+      >
+        <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeTopLevelLines]}>
+          {content}
+        </ReactMarkdown>
+      </div>
+      {active && (
+        <div className="absolute inset-x-6 z-10 space-y-2" style={{ top: active.top }}>
+          {notesFor(active.line).map((n) => (
+            <StagedNote key={n.id} note={n} />
+          ))}
+          <Composer
+            anchor={{ line: active.line, side: "new", code: active.code }}
+            onClose={() => setActive(null)}
+          />
+        </div>
+      )}
     </div>
   );
 }

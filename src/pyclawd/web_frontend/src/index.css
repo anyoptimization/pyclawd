@@ -164,6 +164,25 @@ body {
 .md-body > :last-child {
   margin-bottom: 0;
 }
+
+/* Commentable rendered markdown: each top-level block is clickable to leave a
+   line-anchored comment. Hover shows an accent bar; a commented block keeps a gold bar. */
+.md-render > [data-line] {
+  cursor: pointer;
+  padding-left: 0.6rem;
+  margin-left: -0.6rem;
+  border-radius: 4px;
+  transition:
+    background 0.1s,
+    box-shadow 0.1s;
+}
+.md-render > [data-line]:hover {
+  background: var(--color-panel);
+  box-shadow: inset 3px 0 0 var(--color-accent);
+}
+.md-render > [data-line].md-commented {
+  box-shadow: inset 3px 0 0 var(--color-star);
+}
 .md-body p,
 .md-body ul,
 .md-body ol,
