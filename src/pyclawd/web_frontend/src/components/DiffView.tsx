@@ -278,17 +278,116 @@ function RenderedFile({ project, path, kind }: { project: string; path: string; 
   if (kind === "md") {
     return <RenderedMarkdown content={data.content} />;
   }
-  // HTML: render in a sandboxed iframe with no allowances → scripts and same-origin
-  // access are blocked, so viewing a repo's .html file is safe. The iframe is framed
-  // as a white "page" on a padded backdrop that fills the panel's width and height.
+  return <RenderedHtml content={data.content} />;
+}
+
+/** Add `data-line="N"` to each element's opening tag (N = 1-based source line) so a
+ *  click on a rendered HTML element can be mapped back to its source line. Structural
+ *  head tags are skipped. Regex-based (no parser dep) — robust for typical HTML. */
+function stampHtmlLines(html: string): string {
+  const tagRe = /<([a-zA-Z][\w-]*)((?:"[^"]*"|'[^']*'|[^>"'])*?)(\/?)>/g;
+  const skip = /^(html|head|meta|link|title|script|style|base)$/i;
+  let out = "";
+  let last = 0;
+  let m: RegExpExecArray | null;
+  while ((m = tagRe.exec(html)) !== null) {
+    const [full, tag, attrs, selfClose] = m;
+    out += html.slice(last, m.index);
+    if (skip.test(tag) || attrs.includes("data-line=")) {
+      out += full;
+    } else {
+      const line = html.slice(0, m.index).split("\n").length;
+      out += `<${tag}${attrs} data-line="${line}"${selfClose}>`;
+    }
+    last = m.index + full.length;
+  }
+  return out + html.slice(last);
+}
+
+/** Rendered HTML that is *commentable*. The page renders in an iframe sandboxed to
+ *  `allow-same-origin` only — repo scripts never run (safe), styles stay isolated, and
+ *  the parent can still read the document to map a click to a source line and size the
+ *  frame to its content. Clicking a rendered element opens a composer; all comments for
+ *  the file show as a persistent, editable list below, and commented elements are
+ *  outlined in the page. Comments share the store/line model with the Source view. */
+function RenderedHtml({ content }: { content: string }) {
+  const { selected, staged } = useStore();
+  const frameRef = useRef<HTMLIFrameElement>(null);
+  const [active, setActive] = useState<{ line: number; code: string } | null>(null);
+  const [height, setHeight] = useState(400);
+  const stamped = useMemo(() => stampHtmlLines(content), [content]);
+
+  const notes = staged.filter((c) => c.file === selected && c.side === "new");
+  const commentedLines = useMemo(() => new Set(notes.map((n) => n.line)), [notes]);
+
+  const highlight = (doc: Document) => {
+    doc.querySelectorAll<HTMLElement>("[data-line]").forEach((el) => {
+      el.classList.toggle("pl-commented", commentedLines.has(Number(el.dataset.line)));
+    });
+  };
+
+  const onLoad = () => {
+    const doc = frameRef.current?.contentDocument;
+    if (!doc) return;
+    const resize = () => setHeight(Math.max(200, doc.documentElement.scrollHeight + 8));
+    const style = doc.createElement("style");
+    style.textContent =
+      "[data-line]{cursor:pointer} [data-line]:hover{outline:2px solid rgba(9,105,218,.4);outline-offset:1px}" +
+      ".pl-commented{outline:2px solid #d4a72c;outline-offset:1px}";
+    doc.head.appendChild(style);
+    doc.body.addEventListener("click", (e) => {
+      const el = (e.target as HTMLElement).closest<HTMLElement>("[data-line]");
+      if (!el) return;
+      setActive({ line: Number(el.dataset.line), code: (el.textContent ?? "").trim().slice(0, 120) });
+    });
+    highlight(doc);
+    resize();
+    setTimeout(resize, 150);
+    new ResizeObserver(resize).observe(doc.body);
+  };
+
+  // Re-apply the commented outlines whenever the comment set changes.
+  useEffect(() => {
+    const doc = frameRef.current?.contentDocument;
+    if (doc) highlight(doc);
+  });
+
   return (
-    <div className="h-[calc(100vh-92px)] w-full bg-panel2 p-4">
+    <div className="mx-auto max-w-4xl px-4 py-4">
       <iframe
-        title={`rendered ${path}`}
-        sandbox=""
-        srcDoc={data.content}
-        className="block h-full w-full rounded-md border border-line bg-white shadow-sm"
+        ref={frameRef}
+        title="rendered html"
+        sandbox="allow-same-origin"
+        srcDoc={stamped}
+        onLoad={onLoad}
+        style={{ height }}
+        className="block w-full rounded-md border border-line bg-white shadow-sm"
       />
+      <p className="mt-2 text-[11px] text-dim">
+        Click any element in the page to comment on its source line. Comments appear below and
+        in the Review tray.
+      </p>
+      <div className="mt-3 space-y-2">
+        {active && (
+          <Composer
+            anchor={{ line: active.line, side: "new", code: active.code }}
+            onClose={() => setActive(null)}
+          />
+        )}
+        {notes.length > 0 && (
+          <>
+            <div className="pt-1 text-[11px] font-semibold uppercase tracking-wide text-dim">
+              {notes.length} comment{notes.length > 1 ? "s" : ""}
+            </div>
+            {notes
+              .slice()
+              .sort((a, b) => a.line - b.line)
+              .map((n) => (
+                <StagedNote key={n.id} note={n} />
+              ))}
+          </>
+        )}
+      </div>
     </div>
   );
 }
