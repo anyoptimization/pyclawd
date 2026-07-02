@@ -367,27 +367,28 @@ function RenderedHtml({ content }: { content: string }) {
         Click any element in the page to comment on its source line. Comments appear below and
         in the Review tray.
       </p>
-      <div className="mt-3 space-y-2">
-        {active && (
+      {notes.length > 0 && (
+        <div className="mt-3 space-y-2">
+          <div className="pt-1 text-[11px] font-semibold uppercase tracking-wide text-dim">
+            {notes.length} comment{notes.length > 1 ? "s" : ""}
+          </div>
+          {notes
+            .slice()
+            .sort((a, b) => a.line - b.line)
+            .map((n) => (
+              <StagedNote key={n.id} note={n} />
+            ))}
+        </div>
+      )}
+      {/* Float the composer so it stays reachable no matter how long the page is. */}
+      {active && (
+        <div className="fixed bottom-4 left-1/2 z-50 w-[640px] max-w-[92vw] -translate-x-1/2">
           <Composer
             anchor={{ line: active.line, side: "new", code: active.code }}
             onClose={() => setActive(null)}
           />
-        )}
-        {notes.length > 0 && (
-          <>
-            <div className="pt-1 text-[11px] font-semibold uppercase tracking-wide text-dim">
-              {notes.length} comment{notes.length > 1 ? "s" : ""}
-            </div>
-            {notes
-              .slice()
-              .sort((a, b) => a.line - b.line)
-              .map((n) => (
-                <StagedNote key={n.id} note={n} />
-              ))}
-          </>
-        )}
-      </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -451,7 +452,10 @@ function BlockRow({ block }: { block: MdBlock }) {
   const commented = notes.length > 0;
 
   return (
-    <div className={`group md-body-block relative py-0.5 pl-8 ${commented ? "md-commented" : ""}`}>
+    <div
+      data-anchor={`new:${block.line}`}
+      className={`group md-body-block relative py-0.5 pl-8 ${commented ? "md-commented" : ""}`}
+    >
       <button
         type="button"
         onClick={() => setAdding(true)}
