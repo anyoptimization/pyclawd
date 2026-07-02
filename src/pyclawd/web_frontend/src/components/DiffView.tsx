@@ -2,7 +2,7 @@
 // carries its own comment gutter — a 💬 fades in on hover and stays (highlighted) on
 // lines that already have a staged comment. In split view that means a comment
 // affordance and line numbers on BOTH the old (left) and new (right) sides.
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 
 import { api } from "@/api";
@@ -27,6 +27,18 @@ interface Anchor {
 
 type Composing = Anchor | null;
 
+/** The kind of rendered preview a file supports, or null if it has none. */
+type Renderable = "md" | "html" | null;
+
+/** Classify a path by whether it has a rendered ("as md" / "as html") preview. */
+function renderableKind(path: string | null): Renderable {
+  if (!path) return null;
+  const p = path.toLowerCase();
+  if (p.endsWith(".md") || p.endsWith(".markdown")) return "md";
+  if (p.endsWith(".html") || p.endsWith(".htm")) return "html";
+  return null;
+}
+
 /** Where to anchor a comment for a whole inline line (prefers the new side). */
 function anchor(line: DiffLine): Anchor | null {
   if (line.kind === "del" && line.old != null) return { line: line.old, side: "old", code: line.content };
@@ -39,13 +51,15 @@ export function DiffView({ view }: { view: FileView }) {
   const { layout, project, selected, staged, scrollTo, setScrollTo, selectFile } = useStore();
   const [composing, setComposing] = useState<Composing>(null);
   const [editing, setEditing] = useState<string | null>(null); // draft content, or null
+  const [render, setRender] = useState<"source" | "rendered">("source");
   const [busy, setBusy] = useState(false);
   const qc = useQueryClient();
 
-  // Drop any open composer / editor when switching files.
+  // Drop any open composer / editor and reset to the source view when switching files.
   useEffect(() => {
     setComposing(null);
     setEditing(null);
+    setRender("source");
   }, [selected]);
 
   const refresh = () => {
@@ -105,8 +119,16 @@ export function DiffView({ view }: { view: FileView }) {
   const fileComments = staged.filter((c) => c.file === selected).length;
   const shared = { composing, setComposing };
 
+  // Files that render (markdown / html) get a Source ⟷ Rendered toggle. The rendered
+  // preview is read-only — comments are line-anchored, which only the source has — so
+  // flip back to Source to leave a comment.
+  const renderable = renderableKind(selected);
+  const showRendered = renderable !== null && render === "rendered";
+
   let body: React.ReactNode;
-  if (view.binary) {
+  if (showRendered && project && selected) {
+    body = <RenderedFile project={project} path={selected} kind={renderable} />;
+  } else if (view.binary) {
     body = <div className="p-12 text-center text-dim">Binary file — no text diff.</div>;
   } else if (view.mode === "full") {
     body = <InlineTable rows={view.lines} {...shared} />;
@@ -131,6 +153,7 @@ export function DiffView({ view }: { view: FileView }) {
           </span>
         )}
         <span className="flex-1" />
+        {renderable && editing === null && <ViewToggle value={render} onChange={setRender} />}
         {editing !== null ? (
           <>
             <HeaderBtn onClick={saveEdit} disabled={busy} tone="accent">
@@ -200,6 +223,65 @@ function HeaderBtn({
     >
       {children}
     </button>
+  );
+}
+
+/** A two-state Source ⟷ Rendered segmented toggle (shown for renderable files). */
+function ViewToggle({
+  value,
+  onChange,
+}: {
+  value: "source" | "rendered";
+  onChange: (v: "source" | "rendered") => void;
+}) {
+  const opt = (v: "source" | "rendered", label: string) => (
+    <button
+      onClick={() => onChange(v)}
+      className={`px-2 py-0.5 text-[11px] font-medium transition ${
+        value === v ? "bg-accent text-white" : "text-dim hover:bg-panel2"
+      }`}
+    >
+      {label}
+    </button>
+  );
+  return (
+    <div
+      className="flex overflow-hidden rounded-md border border-line"
+      title="Toggle the source and rendered views (rendered is read-only)"
+    >
+      {opt("source", "Source")}
+      {opt("rendered", "Rendered")}
+    </div>
+  );
+}
+
+/** The read-only rendered preview of a file: markdown via react-markdown, HTML in a
+ *  sandboxed (script-free) iframe. Fetches the working-tree content on demand. */
+function RenderedFile({ project, path, kind }: { project: string; path: string; kind: "md" | "html" }) {
+  const { data, isLoading, error } = useQuery({
+    queryKey: ["fileRaw", project, path],
+    queryFn: () => api.fileRaw(project, path),
+  });
+
+  if (isLoading) return <div className="p-12 text-center text-dim">Loading…</div>;
+  if (error || !data) return <div className="p-12 text-center text-del">Could not load file.</div>;
+
+  if (kind === "md") {
+    return (
+      <div className="mx-auto max-w-3xl px-6 py-6 text-[13.5px]">
+        <Markdown>{data.content}</Markdown>
+      </div>
+    );
+  }
+  // HTML: render in a sandboxed iframe with no allowances → scripts and same-origin
+  // access are blocked, so viewing a repo's .html file is safe.
+  return (
+    <iframe
+      title={`rendered ${path}`}
+      sandbox=""
+      srcDoc={data.content}
+      className="h-[calc(100vh-150px)] w-full border-0 bg-white"
+    />
   );
 }
 
