@@ -165,23 +165,18 @@ body {
   margin-bottom: 0;
 }
 
-/* Commentable rendered markdown: each top-level block is clickable to leave a
-   line-anchored comment. Hover shows an accent bar; a commented block keeps a gold bar. */
-.md-render > [data-line] {
-  cursor: pointer;
-  padding-left: 0.6rem;
-  margin-left: -0.6rem;
+/* Commentable rendered markdown (block-by-block). A hover highlight invites a comment;
+   a block that already has a comment keeps a gold left bar. */
+.md-body-block {
   border-radius: 4px;
-  transition:
-    background 0.1s,
-    box-shadow 0.1s;
+  transition: background 0.1s;
 }
-.md-render > [data-line]:hover {
+.md-body-block:hover {
   background: var(--color-panel);
-  box-shadow: inset 3px 0 0 var(--color-accent);
 }
-.md-render > [data-line].md-commented {
+.md-commented {
   box-shadow: inset 3px 0 0 var(--color-star);
+  border-radius: 4px;
 }
 .md-body p,
 .md-body ul,

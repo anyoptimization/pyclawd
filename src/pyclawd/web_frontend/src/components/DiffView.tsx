@@ -3,9 +3,11 @@
 // lines that already have a staged comment. In split view that means a comment
 // affordance and line numbers on BOTH the old (left) and new (right) sides.
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import remarkParse from "remark-parse";
+import { unified } from "unified";
 
 import { api } from "@/api";
 import { Markdown } from "@/components/Markdown";
@@ -291,84 +293,88 @@ function RenderedFile({ project, path, kind }: { project: string; path: string; 
   );
 }
 
-/** A minimal hast node shape (react-markdown's rehype tree) for the line-stamp plugin. */
-interface HastNode {
-  type: string;
-  position?: { start?: { line?: number } };
-  properties?: Record<string, unknown>;
-  children?: HastNode[];
+/** One top-level markdown block: its source slice and the source line it starts on. */
+interface MdBlock {
+  key: number;
+  line: number;
+  source: string;
 }
 
-/** A rehype plugin: stamp each TOP-LEVEL block with its markdown source line as
- *  `data-line`, so a click in the rendered view anchors a comment to that source
- *  line — round-tripping with the line-anchored comment model the Source view uses. */
-function rehypeTopLevelLines() {
-  return (tree: HastNode) => {
-    for (const node of tree.children ?? []) {
-      const line = node.position?.start?.line;
-      if (node.type === "element" && line) {
-        node.properties = node.properties ?? {};
-        node.properties.dataLine = String(line);
-      }
+/** Split *content* into top-level markdown blocks (paragraph, heading, list, table,
+ *  blockquote, fenced code, …), each with the source line it starts on — so a comment
+ *  anchors to a real source line and round-trips with the Source view. */
+function useMarkdownBlocks(content: string): MdBlock[] {
+  return useMemo(() => {
+    try {
+      const tree = unified().use(remarkParse).use(remarkGfm).parse(content) as {
+        children?: {
+          position?: { start?: { line?: number; offset?: number }; end?: { offset?: number } };
+        }[];
+      };
+      const blocks: MdBlock[] = [];
+      (tree.children ?? []).forEach((node, i) => {
+        const s = node.position?.start;
+        const e = node.position?.end;
+        if (s?.offset == null || e?.offset == null || s.line == null) return;
+        blocks.push({ key: i, line: s.line, source: content.slice(s.offset, e.offset) });
+      });
+      return blocks.length ? blocks : [{ key: 0, line: 1, source: content }];
+    } catch {
+      return [{ key: 0, line: 1, source: content }];
     }
-  };
+  }, [content]);
 }
 
-/** Rendered markdown that is also *commentable*: click any block to anchor a comment
- *  to its source line. Comments stage into the same store as Source-view line comments
- *  (side "new"), so they appear in the Review tray and in Source. Blocks that already
- *  carry a comment are marked. */
+/** Rendered markdown that is *commentable*, GitHub-blob style: each top-level block
+ *  renders with a hover 💬 in the left gutter, and any comments on that block's source
+ *  line render as a persistent thread right below it (always visible, editable). New
+ *  comments stage into the same store as Source-view line comments (side "new"), so the
+ *  two views share one set of line-anchored comments. */
 function RenderedMarkdown({ content }: { content: string }) {
+  const blocks = useMarkdownBlocks(content);
+  return (
+    <div className="mx-auto max-w-3xl px-6 py-6 text-[13.5px]">
+      {blocks.map((b) => (
+        <BlockRow key={b.key} block={b} />
+      ))}
+    </div>
+  );
+}
+
+/** A single rendered markdown block plus its inline comment thread + add affordance. */
+function BlockRow({ block }: { block: MdBlock }) {
   const { selected, staged } = useStore();
-  const containerRef = useRef<HTMLDivElement>(null);
-  const [active, setActive] = useState<{ line: number; code: string; top: number } | null>(null);
-
-  const notesFor = (line: number) =>
-    staged.filter((c) => c.file === selected && c.side === "new" && c.line === line);
-
-  const onClick = (e: React.MouseEvent<HTMLDivElement>) => {
-    const block = (e.target as HTMLElement).closest<HTMLElement>("[data-line]");
-    const root = containerRef.current;
-    if (!block || !root || !root.contains(block)) return;
-    const line = Number(block.dataset.line);
-    if (!line) return;
-    setActive({
-      line,
-      code: (block.textContent ?? "").trim().slice(0, 120),
-      top: block.offsetTop + block.offsetHeight + 4,
-    });
-  };
-
-  // Mark blocks that already carry a comment (a left accent bar), on every render.
-  useEffect(() => {
-    const root = containerRef.current;
-    if (!root) return;
-    root.querySelectorAll<HTMLElement>("[data-line]").forEach((el) => {
-      el.classList.toggle("md-commented", notesFor(Number(el.dataset.line)).length > 0);
-    });
-  });
+  const [adding, setAdding] = useState(false);
+  const notes = staged.filter(
+    (c) => c.file === selected && c.side === "new" && c.line === block.line,
+  );
+  const open = adding || notes.length > 0;
+  const commented = notes.length > 0;
 
   return (
-    <div className="relative mx-auto max-w-3xl px-6 py-6 text-[13.5px]">
-      <div
-        ref={containerRef}
-        onClick={onClick}
-        className="md-body md-render"
-        title="Click a block to comment on its source line"
+    <div className={`group md-body-block relative py-0.5 pl-8 ${commented ? "md-commented" : ""}`}>
+      <button
+        type="button"
+        onClick={() => setAdding(true)}
+        title="Comment on this block"
+        className="absolute left-0 top-1 grid h-6 w-6 place-items-center rounded-md border border-line bg-canvas text-[12px] leading-none opacity-0 shadow-sm transition group-hover:opacity-100 hover:bg-panel2"
       >
-        <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeTopLevelLines]}>
-          {content}
-        </ReactMarkdown>
+        💬
+      </button>
+      <div className="md-body">
+        <ReactMarkdown remarkPlugins={[remarkGfm]}>{block.source}</ReactMarkdown>
       </div>
-      {active && (
-        <div className="absolute inset-x-6 z-10 space-y-2" style={{ top: active.top }}>
-          {notesFor(active.line).map((n) => (
+      {open && (
+        <div className="my-2 max-w-2xl space-y-2">
+          {notes.map((n) => (
             <StagedNote key={n.id} note={n} />
           ))}
-          <Composer
-            anchor={{ line: active.line, side: "new", code: active.code }}
-            onClose={() => setActive(null)}
-          />
+          {adding && (
+            <Composer
+              anchor={{ line: block.line, side: "new", code: block.source.split("\n")[0].slice(0, 120) }}
+              onClose={() => setAdding(false)}
+            />
+          )}
         </div>
       )}
     </div>
